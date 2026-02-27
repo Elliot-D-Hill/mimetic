@@ -2,9 +2,9 @@ from typing import Literal
 
 import torch
 from tensordict import TensorDict
+from torch import Tensor
 
 from .covariance import make_covariance
-from .helpers import make_parameters
 from .pipeline import add_latent_features, add_observed_features
 from .tasks import (
     competing_risk_data,
@@ -14,6 +14,15 @@ from .tasks import (
     multi_event_data,
     survival_data,
 )
+
+
+def make_parameters(parameters: int | list[float], scale: float) -> Tensor:
+    match parameters:
+        case int():
+            mean = torch.randn(parameters)
+        case list():
+            mean = torch.tensor(parameters)
+    return mean.unsqueeze(0) * scale
 
 
 def expand_constants(td: TensorDict, num_timepoints: int) -> TensorDict:
@@ -30,7 +39,7 @@ Tasks = Literal[
     "linear",
     "logistic",
     "survival",
-    "mixture",
+    "mixture_cure",
     "competing_risk",
     "multi_event",
 ]
@@ -94,7 +103,7 @@ def simulate(
                 vocab_size,
                 concentration,
             )
-        case "mixture":
+        case "mixture_cure":
             data = mixture_cure_data(
                 data,
                 weights,
@@ -111,12 +120,12 @@ def simulate(
         case _:
             raise ValueError(
                 f"Unknown task: {task}. Choose from "
-                "'linear', 'logistic', 'survival', 'mixture', 'competing_risk', "
+                "'linear', 'logistic', 'survival', 'mixture_cure', 'competing_risk', "
                 "or 'multi_event'."
             )
     if "label" in data.keys():
         print("Label prevalence:", f"{data['label'].mean().item():.3f}")
     if "indicator" in data.keys():
         print("Indicator prevalence:", f"{data['indicator'].mean().item():.3f}")
-    data = expand_constants(td=data, num_timepoints=num_timepoints)
+    # data = expand_constants(td=data, num_timepoints=num_timepoints)
     return data

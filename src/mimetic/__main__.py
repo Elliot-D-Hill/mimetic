@@ -10,7 +10,7 @@ def main():
         scale=1.0,
         latent_std=1.0,
         observed_std=1.0,
-        vocab_size=10,
+        vocab_size=1000,
         covariance_type="ar1",
         rho=0.9,
     )
