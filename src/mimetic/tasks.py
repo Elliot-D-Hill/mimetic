@@ -5,6 +5,7 @@ from .pipeline import (
     add_censor_time,
     add_competing_risk_indicators,
     add_competing_risks_events,
+    add_discrete_event_time,
     add_event_time,
     add_linear_output,
     add_logistic_output,
@@ -86,7 +87,9 @@ def competing_risk_data(
 ) -> TensorDict:
     """Generate competing risks TTE data for self-supervised pretraining."""
     data = add_competing_risks_events(data, vocab_size)
-    data = add_competing_risk_indicators(data, vocab_size, boundaries)
+    data = add_competing_risk_indicators(data, vocab_size)
+    if boundaries is not None:
+        data = add_discrete_event_time(data, boundaries)
     return data
 
 
@@ -97,5 +100,8 @@ def multi_event_data(
 ) -> TensorDict:
     """Generate per-event TTE data with a sliding horizon window."""
     data = add_competing_risks_events(data, vocab_size)
-    data = add_multi_event_times(data, vocab_size, boundaries)
+    horizon = boundaries[-1] if boundaries is not None else None
+    data = add_multi_event_times(data, vocab_size, horizon)
+    if boundaries is not None:
+        data = add_discrete_event_time(data, boundaries)
     return data

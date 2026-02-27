@@ -194,9 +194,9 @@ def _competing_risks_events(
     log_alpha = F.linear(features, weight_alpha)
     log_beta = F.linear(features, weight_beta)
     # Ensure positive parameters
-    # TODO why 0.1? Should we allow smaller values? Maybe add a separate scale parameter?
-    alpha = F.softplus(log_alpha) + 0.1  # scale > 0
-    beta = F.softplus(log_beta) + 0.1  # shape > 0
+    eps = 1e-6
+    alpha = F.softplus(log_alpha) + eps  # scale > 0
+    beta = F.softplus(log_beta) + eps  # shape > 0
     # Sample failure times for all event types
     weibull = dist.Weibull(alpha, beta)
     failure_times = weibull.rsample()  # [N, T, K]
@@ -221,9 +221,14 @@ def add_competing_risks_events(data: TensorDict, vocab_size: int) -> TensorDict:
     return data
 
 
-def _discretize_event_time(
-    event_time: Tensor, indicator: Tensor, boundaries: Tensor
-) -> Tensor:
+def add_discrete_event_time(data: TensorDict, boundaries: Tensor) -> TensorDict:
+    """Discretize continuous event times into interval bins.
+
+    Reads: 'event_time', 'indicator'.
+    Writes: 'discrete_event_time'.
+    """
+    event_time = data["event_time"]
+    indicator = data["indicator"]
     interval_start = boundaries[:-1].view(*([1] * event_time.dim()), -1)
     interval_end = boundaries[1:].view(*([1] * event_time.dim()), -1)
     interval_width = interval_end - interval_start
@@ -231,27 +236,23 @@ def _discretize_event_time(
     exposure = ((event_time - interval_start) / interval_width).clamp(0, 1)
     in_interval = (event_time > interval_start) & (event_time <= interval_end)
     indicator = indicator.unsqueeze(-1).to(exposure.dtype)
-    return indicator * (exposure * in_interval) + (1.0 - indicator) * exposure
+    data["discrete_event_time"] = (
+        indicator * (exposure * in_interval) + (1.0 - indicator) * exposure
+    )
+    return data
 
 
-def add_competing_risk_indicators(
-    data: TensorDict, vocab_size: int, boundaries: Tensor | None = None
-) -> TensorDict:
+def add_competing_risk_indicators(data: TensorDict, vocab_size: int) -> TensorDict:
     """Compute one-hot indicators and expand event times for competing risks.
 
     Reads: 'tokens' [N, T, 1], 'event_time' [N, T, 1].
     Writes: 'indicator' [N, T, K], 'event_time' [N, T, K].
-            Optionally: 'discrete_event_time'.
     """
     dtype = data["event_time"].dtype
     tokens = data["tokens"].squeeze(-1)  # [N, T]
     indicator = F.one_hot(tokens, num_classes=vocab_size).to(dtype)  # [N, T, K]
     data["indicator"] = indicator
     data["event_time"] = data["event_time"].expand(-1, -1, vocab_size)  # [N, T, K]
-    if boundaries is not None:
-        data["discrete_event_time"] = _discretize_event_time(
-            data["event_time"], indicator, boundaries
-        )
     return data
 
 
@@ -270,25 +271,17 @@ def _next_event_times(tokens: Tensor, time: Tensor, vocab_size: int) -> Tensor:
 
 
 def add_multi_event_times(
-    data: TensorDict, vocab_size: int, boundaries: Tensor | None = None
+    data: TensorDict, vocab_size: int, horizon: float | Tensor | None = None
 ) -> TensorDict:
     """Compute per-event TTE with a sliding horizon window.
 
     Reads: 'tokens' [N, T, 1], 'time' [N, T, 1].
     Writes: 'event_time' [N, T, K], 'indicator' [N, T, K].
-            Optionally: 'discrete_event_time'.
     """
     time = data["time"].squeeze(-1)
     event_time = _next_event_times(data["tokens"], time, vocab_size)
-    horizon = (
-        boundaries[-1]
-        if boundaries is not None
-        else event_time[event_time.isfinite()].max()
-    )
+    if horizon is None:
+        horizon = event_time[event_time.isfinite()].max()
     data["event_time"] = event_time.clamp(max=horizon)
     data["indicator"] = (event_time <= horizon).to(data["event_time"].dtype)
-    if boundaries is not None:
-        data["discrete_event_time"] = _discretize_event_time(
-            data["event_time"], data["indicator"], boundaries
-        )
     return data
