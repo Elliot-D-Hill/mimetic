@@ -1,10 +1,8 @@
-from pathlib import Path
-
-from .simulate import SimulationConfig, simulate
+from . import simulate
 
 
 def main():
-    cfg = SimulationConfig(
+    data = simulate(
         task="multi_event",
         num_samples=100,
         num_timepoints=10,
@@ -13,11 +11,12 @@ def main():
         latent_std=1.0,
         observed_std=1.0,
         vocab_size=10,
-        path=Path("./data/simulation"),
+        covariance_type="ar1",
+        rho=0.9,
     )
-    data = simulate(cfg)
     print(data)
-    data.memmap(str(cfg.path))
+    path = "./data/simulation"
+    data.memmap(path)
 
 
 if __name__ == "__main__":
