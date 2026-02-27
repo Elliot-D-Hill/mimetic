@@ -127,5 +127,5 @@ def simulate(
         print("Label prevalence:", f"{data['label'].mean().item():.3f}")
     if "indicator" in data.keys():
         print("Indicator prevalence:", f"{data['indicator'].mean().item():.3f}")
-    # data = expand_constants(td=data, num_timepoints=num_timepoints)
+    data = expand_constants(td=data, num_timepoints=num_timepoints)
     return data

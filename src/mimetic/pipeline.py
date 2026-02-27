@@ -212,9 +212,7 @@ def add_competing_risks_events(data: TensorDict, vocab_size: int) -> TensorDict:
     Writes: 'tokens' [N, T, 1], 'event_time' [N, T, 1], 'time' [N, T, 1],
             'failure_times' [N, T, K].
     """
-    tokens, tte, failure_times = _competing_risks_events(
-        data["features"], vocab_size
-    )
+    tokens, tte, failure_times = _competing_risks_events(data["features"], vocab_size)
     time = tte.cumsum(dim=1)
     data["tokens"] = tokens.unsqueeze(-1)
     data["event_time"] = tte.unsqueeze(-1)
