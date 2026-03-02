@@ -11,6 +11,7 @@ from .pipeline import (
     add_logistic_output,
     add_mixture_cure_censoring,
     add_multi_event_times,
+    add_multiclass_output,
     add_survival_indicators,
     add_time,
     add_tokens,
@@ -77,6 +78,19 @@ def mixture_cure_data(
     data = add_time(data, gamma_shape, gamma_rate)
     data = add_censor_time(data)
     data = add_survival_indicators(data)
+    return data
+
+
+def multiclass_data(
+    data: TensorDict,
+    weights: Tensor,
+    prevalence: float,
+    vocab_size: int = 1000,
+    concentration: float = 1.0,
+) -> TensorDict:
+    """Generate multiclass classification data."""
+    data = linear_data(data, weights, prevalence, vocab_size, concentration)
+    data = add_multiclass_output(data)
     return data
 
 

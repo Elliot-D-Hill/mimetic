@@ -67,7 +67,7 @@ def add_linear_output(data: TensorDict, weight: Tensor, bias: float) -> TensorDi
     """Compute linear output from latent features.
 
     Reads: 'latent' [N, 1, D].
-    Writes: 'output' [N, 1, 1].
+    Writes: 'output' [N, 1, K] where K = weight.size(0).
     """
     event_rate = weight.new_tensor(bias)
     event_rate = torch.log(event_rate / (1 - event_rate))
@@ -79,12 +79,24 @@ def add_linear_output(data: TensorDict, weight: Tensor, bias: float) -> TensorDi
 def add_logistic_output(data: TensorDict) -> TensorDict:
     """Compute logistic probability and binary label from linear output.
 
-    Reads: 'output' [N, 1, 1].
-    Writes: 'probability' [N, 1, 1], 'label' [N, 1, 1].
+    Reads: 'output' [N, 1, K].
+    Writes: 'probability' [N, 1, K], 'label' [N, 1, K].
     """
     probability = torch.sigmoid(data["output"])
     data["probability"] = probability
     data["label"] = torch.bernoulli(probability)
+    return data
+
+
+def add_multiclass_output(data: TensorDict) -> TensorDict:
+    """Compute multiclass probability and class label from linear output.
+
+    Reads: 'output' [N, 1, K].
+    Writes: 'probability' [N, 1, K], 'label' [N, 1, 1].
+    """
+    probability = torch.softmax(data["output"], dim=-1)
+    data["probability"] = probability
+    data["label"] = dist.Categorical(probs=probability).sample().unsqueeze(-1)
     return data
 
 
