@@ -81,27 +81,20 @@ def mixture_cure_data(
 
 
 def competing_risk_data(
-    data: TensorDict,
-    vocab_size: int,
-    boundaries: Tensor | None = None,
+    data: TensorDict, vocab_size: int, boundaries: Tensor
 ) -> TensorDict:
     """Generate competing risks TTE data for self-supervised pretraining."""
     data = add_competing_risks_events(data, vocab_size)
     data = add_competing_risk_indicators(data, vocab_size)
-    if boundaries is not None:
-        data = add_discrete_event_time(data, boundaries)
+    data = add_discrete_event_time(data, boundaries)
     return data
 
 
 def multi_event_data(
-    data: TensorDict,
-    vocab_size: int,
-    boundaries: Tensor | None = None,
+    data: TensorDict, vocab_size: int, boundaries: Tensor
 ) -> TensorDict:
     """Generate per-event TTE data with a sliding horizon window."""
     data = add_competing_risks_events(data, vocab_size)
-    horizon = boundaries[-1] if boundaries is not None else None
-    data = add_multi_event_times(data, vocab_size, horizon)
-    if boundaries is not None:
-        data = add_discrete_event_time(data, boundaries)
+    data = add_multi_event_times(data, vocab_size, boundaries[-1])
+    data = add_discrete_event_time(data, boundaries)
     return data

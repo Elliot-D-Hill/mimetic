@@ -3,7 +3,7 @@ from . import simulate
 
 def main():
     data = simulate(
-        task="multi_event",
+        task="linear",
         num_samples=100,
         num_timepoints=10,
         parameters=2,
