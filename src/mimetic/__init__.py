@@ -2,7 +2,6 @@ from typing import Literal
 
 import torch
 from tensordict import TensorDict
-from torch import Tensor
 
 from .covariance import make_covariance
 from .pipeline import add_latent_features, add_observed_features
@@ -15,21 +14,6 @@ from .tasks import (
     multiclass_data,
     survival_data,
 )
-
-
-def make_parameters(
-    parameters: int | list[float], scale: float, n_targets: int = 1
-) -> Tensor:
-    match parameters:
-        case int():
-            mean = torch.randn(n_targets, parameters)
-        case list():
-            if n_targets > 1:
-                raise ValueError(
-                    "Explicit parameter lists not supported with n_targets > 1. Use int."
-                )
-            mean = torch.tensor(parameters).unsqueeze(0)
-    return mean * scale
 
 
 def expand_constants(td: TensorDict, num_timepoints: int) -> TensorDict:
@@ -57,12 +41,12 @@ def simulate(
     task: Tasks,
     num_samples: int,
     num_timepoints: int,
-    parameters: int | list[float],
+    num_parameters: int,
     scale: float,
     latent_std: float,
     observed_std: float,
     # Task-specific (optional with defaults)
-    n_targets: int = 1,
+    num_targets: int = 1,
     prevalence: float = 0.5,
     gamma_shape: float = 1.0,
     gamma_rate: float = 1.0,
@@ -75,17 +59,21 @@ def simulate(
     eta: float = 1.0,  # LKJ concentration
 ) -> TensorDict:
     """Main simulation entry point with centralized component construction."""
-    if n_targets > 1 and task in ("survival", "mixture_cure", "competing_risk", "multi_event"):
-        raise ValueError(f"n_targets > 1 is not supported for task '{task}'")
-    if task == "multiclass" and n_targets < 2:
-        raise ValueError("multiclass task requires n_targets >= 2")
-    weights = make_parameters(parameters, scale, n_targets=n_targets)
+    if num_targets > 1 and task in (
+        "survival",
+        "mixture_cure",
+        "competing_risk",
+        "multi_event",
+    ):
+        raise ValueError(f"num_targets > 1 is not supported for task '{task}'")
+    if task == "multiclass" and num_targets < 2:
+        raise ValueError("multiclass task requires num_targets >= 2")
+    weights = torch.randn(num_targets, num_parameters) * scale
     covariance = make_covariance(
         num_timepoints=num_timepoints, covariance_type=covariance_type, rho=rho, eta=eta
     )
     data = TensorDict(
-        {"id": torch.arange(num_samples).view(-1, 1, 1)},
-        batch_size=num_samples,
+        {"id": torch.arange(num_samples).view(-1, 1, 1)}, batch_size=num_samples
     )
     data = add_latent_features(data, hidden_dim=weights.size(-1), latent_std=latent_std)
     data = add_observed_features(
@@ -94,15 +82,12 @@ def simulate(
         observed_std=observed_std,
         covariance=covariance,
     )
-    # TODO should discretization happen after all data generation?
     boundaries = None
     if tte_boundaries is None:
         boundaries = torch.linspace(0, num_timepoints - 1, num_timepoints)
     else:
         boundaries = torch.tensor(
-            tte_boundaries,
-            device=data["features"].device,
-            dtype=data["features"].dtype,
+            tte_boundaries, device=data["features"].device, dtype=data["features"].dtype
         )
     match task:
         case "linear":
@@ -144,8 +129,9 @@ def simulate(
     if "label" in data.keys():
         if task == "multiclass":
             labels = data["label"].flatten()
-            for c in range(n_targets):
-                print(f"Class {c} proportion: {(labels == c).float().mean().item():.3f}")
+            for c in range(num_targets):
+                proportion = (labels == c).float().mean().item()
+                print(f"Class {c} proportion: {proportion:.3f}")
         else:
             print("Label prevalence:", f"{data['label'].mean().item():.3f}")
     if "indicator" in data.keys():

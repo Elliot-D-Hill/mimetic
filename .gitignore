@@ -14,3 +14,4 @@ docs/
 scripts/
 data/
 .DS_Store
+.claude/

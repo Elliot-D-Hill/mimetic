@@ -3,15 +3,28 @@ name = "mimetic"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
-authors = [
-    { name = "Elliot Hill", email = "elliot.douglas.hill@gmail.com" }
-]
+authors = [{ name = "Elliot Hill", email = "elliot.douglas.hill@gmail.com" }]
 requires-python = ">=3.13"
-dependencies = [
-    "tensordict>=0.11.0",
-    "torch>=2.10.0",
-]
+dependencies = ["tensordict>=0.11.0", "torch>=2.10.0"]
+[dependency-groups]
+dev = ["numpydoc>=1.10.0"]
 
 [build-system]
 requires = ["uv_build>=0.9.9,<0.10.0"]
 build-backend = "uv_build"
+
+[tool.ruff.format]
+skip-magic-trailing-comma = true
+
+[tool.numpydoc_validation]
+checks = [
+    "all",  # enable all checks...
+    "EX01", # ...except: requires Examples section (often too strict)
+    "SA01", # ...except: requires See Also section
+    "ES01", # ...except: requires extended summary
+]
+exclude = [
+    '\.__repr__$',
+    '\.__str__$',
+    '^test_',      # skip test functions
+]

@@ -22,10 +22,7 @@ def add_latent_features(
 
 
 def add_observed_features(
-    data: TensorDict,
-    num_timepoints: int,
-    observed_std: float,
-    covariance: Tensor,
+    data: TensorDict, num_timepoints: int, observed_std: float, covariance: Tensor
 ) -> TensorDict:
     """Generate observed features with temporal correlation.
 
