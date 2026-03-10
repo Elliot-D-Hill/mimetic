@@ -97,6 +97,27 @@ def add_multiclass_output(data: TensorDict) -> TensorDict:
     return data
 
 
+def add_ordinal_output(data: TensorDict, num_classes: int) -> TensorDict:
+    """Compute ordinal probability and label via cumulative logit model.
+
+    Reads: 'output' [N, 1, 1].
+    Writes: 'probability' [N, 1, K], 'label' [N, 1, 1].
+    """
+    output = data["output"]  # [N, 1, 1]
+    # K-1 evenly spaced thresholds centered at 0
+    thresholds = torch.linspace(-2, 2, num_classes - 1)  # [K-1]
+    # Cumulative P(Y <= k) = sigmoid(threshold_k - output)
+    cumulative = torch.sigmoid(thresholds - output)  # [N, 1, K-1]
+    ones = torch.ones_like(output)
+    cumulative = torch.cat([cumulative, ones], dim=-1)  # [N, 1, K]
+    zeros = torch.zeros_like(output)
+    cumulative_shifted = torch.cat([zeros, cumulative[..., :-1]], dim=-1)  # [N, 1, K]
+    probs = cumulative - cumulative_shifted  # [N, 1, K]
+    data["probability"] = probs
+    data["label"] = dist.Categorical(probs=probs).sample().unsqueeze(-1)  # [N, 1, 1]
+    return data
+
+
 def add_event_time(data: TensorDict) -> TensorDict:
     """Sample event time from exponential distribution.
 

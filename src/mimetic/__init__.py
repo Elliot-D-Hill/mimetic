@@ -12,6 +12,7 @@ from .tasks import (
     mixture_cure_data,
     multi_event_data,
     multiclass_data,
+    ordinal_data,
     survival_data,
 )
 
@@ -30,6 +31,7 @@ Tasks = Literal[
     "linear",
     "logistic",
     "multiclass",
+    "ordinal",
     "survival",
     "mixture_cure",
     "competing_risk",
@@ -66,9 +68,11 @@ def simulate(
         "multi_event",
     ):
         raise ValueError(f"num_targets > 1 is not supported for task '{task}'")
-    if task == "multiclass" and num_targets < 2:
-        raise ValueError("multiclass task requires num_targets >= 2")
+    if task in ("multiclass", "ordinal") and num_targets < 2:
+        raise ValueError(f"{task} task requires num_targets >= 2")
     weights = torch.randn(num_targets, num_parameters) * scale
+    if task == "ordinal":
+        weights = torch.randn(1, num_parameters) * scale
     covariance = make_covariance(
         num_timepoints=num_timepoints, covariance_type=covariance_type, rho=rho, eta=eta
     )
@@ -96,6 +100,10 @@ def simulate(
             data = logistic_data(data, weights, prevalence, vocab_size, concentration)
         case "multiclass":
             data = multiclass_data(data, weights, prevalence, vocab_size, concentration)
+        case "ordinal":
+            data = ordinal_data(
+                data, weights, prevalence, num_targets, vocab_size, concentration
+            )
         case "survival":
             data = survival_data(
                 data,
@@ -123,11 +131,11 @@ def simulate(
         case _:
             raise ValueError(
                 f"Unknown task: {task}. Choose from "
-                "'linear', 'logistic', 'multiclass', 'survival', 'mixture_cure', "
-                "'competing_risk', or 'multi_event'."
+                "'linear', 'logistic', 'multiclass', 'ordinal', 'survival', "
+                "'mixture_cure', 'competing_risk', or 'multi_event'."
             )
     if "label" in data.keys():
-        if task == "multiclass":
+        if task in ("multiclass", "ordinal"):
             labels = data["label"].flatten()
             for c in range(num_targets):
                 proportion = (labels == c).float().mean().item()

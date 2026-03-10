@@ -12,6 +12,7 @@ from .pipeline import (
     add_mixture_cure_censoring,
     add_multi_event_times,
     add_multiclass_output,
+    add_ordinal_output,
     add_survival_indicators,
     add_time,
     add_tokens,
@@ -91,6 +92,20 @@ def multiclass_data(
     """Generate multiclass classification data."""
     data = linear_data(data, weights, prevalence, vocab_size, concentration)
     data = add_multiclass_output(data)
+    return data
+
+
+def ordinal_data(
+    data: TensorDict,
+    weights: Tensor,
+    prevalence: float,
+    num_targets: int,
+    vocab_size: int = 1000,
+    concentration: float = 1.0,
+) -> TensorDict:
+    """Generate ordinal regression data."""
+    data = linear_data(data, weights, prevalence, vocab_size, concentration)
+    data = add_ordinal_output(data, num_classes=num_targets)
     return data
 
 
