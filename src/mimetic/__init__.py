@@ -4,7 +4,7 @@ import torch
 from tensordict import TensorDict
 
 from .covariance import make_covariance
-from .pipeline import add_latent_features, add_observed_features
+from .pipeline import add_observed_features, add_random_effects
 from .tasks import (
     competing_risk_data,
     linear_data,
@@ -15,17 +15,6 @@ from .tasks import (
     ordinal_data,
     survival_data,
 )
-
-
-def expand_constants(td: TensorDict, num_timepoints: int) -> TensorDict:
-    """Broadcast tensors with singleton time dimension to num_timepoints."""
-    for key, value in td.items():
-        if value.dim() < 2 or value.size(1) != 1:
-            continue
-        expanded_shape = (value.size(0), num_timepoints, *value.shape[2:])
-        td[key] = value.expand(*expanded_shape)
-    return td
-
 
 Tasks = Literal[
     "linear",
@@ -55,10 +44,16 @@ def simulate(
     vocab_size: int = 1000,
     concentration: float = 1.0,  # Dirichlet concentration for token sampling
     tte_boundaries: list[float] | None = None,
-    # Covariance options
+    # Temporal covariance options
     covariance_type: Literal["isotropic", "ar1", "lkj"] = "isotropic",
     rho: float = 0.9,  # AR(1) autocorrelation
     eta: float = 1.0,  # LKJ concentration
+    # Multilevel / hierarchy options
+    num_groups: int | None = None,
+    icc: float = 0.0,
+    group_sizes: list[int] | None = None,
+    slope_std: float = 0.0,
+    random_effects_eta: float = torch.inf,
 ) -> TensorDict:
     """Main simulation entry point with centralized component construction."""
     if num_targets > 1 and task in (
@@ -70,16 +65,46 @@ def simulate(
         raise ValueError(f"num_targets > 1 is not supported for task '{task}'")
     if task in ("multiclass", "ordinal") and num_targets < 2:
         raise ValueError(f"{task} task requires num_targets >= 2")
-    weights = torch.randn(num_targets, num_parameters) * scale
     if task == "ordinal":
         weights = torch.randn(1, num_parameters) * scale
+    else:
+        weights = torch.randn(num_targets, num_parameters) * scale
     covariance = make_covariance(
         num_timepoints=num_timepoints, covariance_type=covariance_type, rho=rho, eta=eta
     )
     data = TensorDict(
         {"id": torch.arange(num_samples).view(-1, 1, 1)}, batch_size=num_samples
     )
-    data = add_latent_features(data, hidden_dim=weights.size(-1), latent_std=latent_std)
+    # Group assignment (default: single group with all subjects)
+    if group_sizes is not None:
+        sizes = torch.tensor(group_sizes, dtype=torch.long)
+        if num_groups is not None and len(group_sizes) != num_groups:
+            raise ValueError(
+                f"len(group_sizes)={len(group_sizes)} != num_groups={num_groups}"
+            )
+        if sizes.sum().item() != num_samples:
+            raise ValueError(
+                f"sum(group_sizes)={sizes.sum().item()} != num_samples={num_samples}"
+            )
+        num_groups = len(group_sizes)
+    elif num_groups is not None:
+        base_size = num_samples // num_groups
+        remainder = num_samples % num_groups
+        sizes = torch.full((num_groups,), base_size, dtype=torch.long)
+        sizes[:remainder] += 1
+    else:
+        num_groups = 1
+        sizes = torch.tensor([num_samples], dtype=torch.long)
+    group_ids = torch.repeat_interleave(torch.arange(num_groups), sizes)
+    data["group"] = group_ids.view(-1, 1, 1)  # [N, 1, 1]
+    data = add_random_effects(
+        data,
+        hidden_dim=weights.size(-1),
+        latent_std=latent_std,
+        icc=icc,
+        slope_std=slope_std,
+        random_effects_eta=random_effects_eta,
+    )
     data = add_observed_features(
         data,
         num_timepoints=num_timepoints,
@@ -144,5 +169,4 @@ def simulate(
             print("Label prevalence:", f"{data['label'].mean().item():.3f}")
     if "indicator" in data.keys():
         print("Indicator prevalence:", f"{data['indicator'].mean().item():.3f}")
-    data = expand_constants(td=data, num_timepoints=num_timepoints)
     return data

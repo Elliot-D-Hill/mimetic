@@ -15,3 +15,5 @@ scripts/
 data/
 .DS_Store
 .claude/
+notebooks/
+TODO.md

@@ -2,40 +2,80 @@ import torch
 import torch.distributions as dist
 import torch.nn.functional as F
 from tensordict import TensorDict
-from torch import Tensor
+from torch import Tensor, arange, randn
 
 
-def add_latent_features(
-    data: TensorDict, hidden_dim: int, latent_std: float
+def add_random_effects(
+    data: TensorDict,
+    hidden_dim: int,
+    latent_std: float,
+    icc: float = 0.0,
+    slope_std: float = 0.0,
+    random_effects_eta: float = torch.inf,
 ) -> TensorDict:
-    """Sample latent features from a multivariate normal.
+    """Sample latent features with multilevel random effects.
 
-    Reads: batch_size (for num_samples).
-    Writes: 'latent' [N, 1, D].
+    Decomposes latent variance into group-level and subject-level components
+    controlled by the intraclass correlation coefficient (ICC):
+
+        sigma_G = latent_std * sqrt(icc)       (between-group std)
+        sigma_V = latent_std * sqrt(1 - icc)   (within-group, between-subject std)
+
+    When ``icc == 0``, falls back to flat sampling:
+    latent ~ N(0, latent_std^2 * I) with per-subject slopes.
+
+    Reads: 'id' [N, 1, 1], 'group' [N, 1, 1].
+    Writes: 'latent' [N, 1, D], 'slope' [N, 1, D].
+
+    Args:
+        hidden_dim: dimensionality D of latent features.
+        latent_std: total standard deviation of latent features.
+        icc: intraclass correlation in [0, 1]. Partitions latent variance
+            between group and subject levels.
+        slope_std: standard deviation of random slopes. Default 0.0
+            (no temporal trend).
+        random_effects_eta: LKJ concentration for random-effects correlation.
+            Default inf (isotropic/uncorrelated).
     """
-    num_samples = data["id"].shape[0]
-    zero = torch.zeros(hidden_dim)
-    covariance = torch.eye(hidden_dim) * latent_std**2
-    mvn = dist.MultivariateNormal(zero, covariance)
-    data["latent"] = mvn.sample((num_samples, 1))  # [N, 1, D]
+    num_samples: int = data["id"].shape[0]
+    if icc == 0.0:
+        data["latent"] = randn(num_samples, 1, hidden_dim) * latent_std  # [N, 1, D]
+        data["slope"] = randn(num_samples, 1, hidden_dim) * slope_std  # [N, 1, D]
+        return data
+    # Hierarchical: decompose variance via ICC
+    group_ids: Tensor = data["group"].squeeze(-1).squeeze(-1).long()  # [N]
+    num_groups: int = int(group_ids.max().item()) + 1
+    sigma_g: float = latent_std * (icc**0.5)
+    sigma_v: float = latent_std * ((1.0 - icc) ** 0.5)
+    # Group intercepts: u_g ~ N(0, sigma_G^2 * R) where R ~ LKJ(eta)
+    L: Tensor = dist.LKJCholesky(hidden_dim, concentration=random_effects_eta).sample()
+    group_effects = (randn(num_groups, 1, hidden_dim) @ L.T) * sigma_g  # [G, 1, D]
+    # Subject intercepts: v_i ~ N(0, sigma_V^2 * I)
+    subject_effects = randn(num_samples, 1, hidden_dim) * sigma_v  # [N, 1, D]
+    data["latent"] = group_effects[group_ids] + subject_effects  # [N, 1, D]
+    # Random slopes: s_g ~ N(0, slope_std^2 * I)
+    group_slopes = randn(num_groups, 1, hidden_dim) * slope_std  # [G, 1, D]
+    data["slope"] = group_slopes[group_ids]  # [N, 1, D]
     return data
 
 
 def add_observed_features(
     data: TensorDict, num_timepoints: int, observed_std: float, covariance: Tensor
 ) -> TensorDict:
-    """Generate observed features with temporal correlation.
+    """Generate observed features with temporal correlation and random slopes.
 
-    Reads: 'latent' [N, 1, D].
+    Reads: 'latent' [N, 1, D], 'slope' [N, 1, D].
     Writes: 'features' [N, T, D].
     """
-    latent = data["latent"]  # [N, 1, D]
+    latent: Tensor = data["latent"]  # [N, 1, D]
     covariance = covariance * observed_std**2
     num_samples, _, hidden_dim = latent.shape
     mvn = dist.MultivariateNormal(torch.zeros(num_timepoints), covariance)
     noise = mvn.sample((num_samples, hidden_dim))  # [N, D, T]
     noise = noise.permute(0, 2, 1)  # [N, T, D]
-    data["features"] = latent + noise  # [N, 1, D] + [N, T, D] -> [N, T, D]
+    time_index = arange(num_timepoints, dtype=noise.dtype)  # [T]
+    time_index = time_index.view(1, -1, 1)  # [1, T, 1]
+    data["features"] = latent + noise + data["slope"] * time_index  # [N, T, D]
     return data
 
 
@@ -49,7 +89,7 @@ def add_tokens(
     """
     features = data["features"]
     hidden_dim = features.shape[-1]
-    weight = torch.randn(vocab_size, hidden_dim)
+    weight = randn(vocab_size, hidden_dim)
     logits = F.linear(features, weight)
     prior = torch.ones(vocab_size) * concentration
     dirichlet = dist.Dirichlet(prior)
@@ -103,7 +143,7 @@ def add_ordinal_output(data: TensorDict, num_classes: int) -> TensorDict:
     Reads: 'output' [N, 1, 1].
     Writes: 'probability' [N, 1, K], 'label' [N, 1, 1].
     """
-    output = data["output"]  # [N, 1, 1]
+    output: Tensor = data["output"]  # [N, 1, 1]
     # K-1 evenly spaced thresholds centered at 0
     thresholds = torch.linspace(-2, 2, num_classes - 1)  # [K-1]
     # Cumulative P(Y <= k) = sigmoid(threshold_k - output)
@@ -145,8 +185,8 @@ def add_time(data: TensorDict, gamma_shape: float, gamma_rate: float) -> TensorD
     Reads: 'features' (for shape inference).
     Writes: 'time' [N, T, 1].
     """
-    num_samples = data["features"].shape[0]
-    num_timepoints = data["features"].shape[1]
+    num_samples: int = data["features"].shape[0]
+    num_timepoints: int = data["features"].shape[1]
     gamma = dist.Gamma(gamma_shape, gamma_rate)
     time_intervals = gamma.sample((num_samples, num_timepoints, 1))  # [N, T, 1]
     data["time"] = time_intervals.cumsum(dim=1)  # [N, T, 1]
@@ -159,7 +199,7 @@ def add_censor_time(data: TensorDict) -> TensorDict:
     Reads: 'time' [N, T, 1].
     Writes: 'censor_time' [N, 1, 1].
     """
-    time = data["time"]
+    time: Tensor = data["time"]
     min_time = torch.amin(time, dim=1, keepdim=True)
     max_time = torch.amax(time, dim=1, keepdim=True)
     data["censor_time"] = dist.Uniform(min_time, max_time).sample()
@@ -172,10 +212,10 @@ def add_survival_indicators(data: TensorDict) -> TensorDict:
     Reads: 'event_time', 'censor_time', 'time'.
     Writes: 'indicator', 'observed_time', 'time_to_event'.
     """
-    event_time = data["event_time"]
-    censor_time = data["censor_time"]
-    time = data["time"]
-    indicator = (event_time < censor_time).float()
+    event_time: Tensor = data["event_time"]
+    censor_time: Tensor = data["censor_time"]
+    time: Tensor = data["time"]
+    indicator: Tensor = (event_time < censor_time).float()
     observed_time = torch.minimum(censor_time, event_time)
     data["indicator"] = indicator
     data["observed_time"] = observed_time
@@ -194,10 +234,10 @@ def add_competing_risks_events(data: TensorDict, vocab_size: int) -> TensorDict:
     Writes: 'tokens' [N, T, 1], 'event_time' [N, T, 1], 'time' [N, T, 1],
             'failure_times' [N, T, K].
     """
-    features = data["features"]
+    features: Tensor = data["features"]
     # Project features to Weibull log-parameters
-    weight_alpha = torch.randn(vocab_size, features.shape[-1])
-    weight_beta = torch.randn(vocab_size, features.shape[-1])
+    weight_alpha = randn(vocab_size, features.shape[-1])
+    weight_beta = randn(vocab_size, features.shape[-1])
     log_alpha = F.linear(features, weight_alpha)
     log_beta = F.linear(features, weight_beta)
     eps = 1e-6  # Ensure positive parameters
@@ -221,17 +261,17 @@ def add_discrete_event_time(data: TensorDict, boundaries: Tensor) -> TensorDict:
     Reads: 'event_time', 'indicator'.
     Writes: 'discrete_event_time'.
     """
-    event_time = data["event_time"]
-    indicator = data["indicator"]
+    event_time: Tensor = data["event_time"]
+    indicator: Tensor = data["indicator"]
     interval_start = boundaries[:-1].view(*([1] * event_time.dim()), -1)
     interval_end = boundaries[1:].view(*([1] * event_time.dim()), -1)
     interval_width = interval_end - interval_start
     event_time = event_time.unsqueeze(-1)
-    exposure = ((event_time - interval_start) / interval_width).clamp(0, 1)
-    in_interval = (event_time > interval_start) & (event_time <= interval_end)
+    exposure: Tensor = ((event_time - interval_start) / interval_width).clamp(0, 1)
+    in_interval: Tensor = (event_time > interval_start) & (event_time <= interval_end)
     indicator = indicator.unsqueeze(-1).to(exposure.dtype)
-    event_duration = indicator * (exposure * in_interval)
-    censored_duration = (1.0 - indicator) * exposure
+    event_duration: Tensor = indicator * (exposure * in_interval)
+    censored_duration: Tensor = (1.0 - indicator) * exposure
     data["discrete_event_time"] = event_duration + censored_duration
     return data
 
@@ -243,7 +283,7 @@ def add_competing_risk_indicators(data: TensorDict, vocab_size: int) -> TensorDi
     Writes: 'indicator' [N, T, K], 'event_time' [N, T, K].
     """
     dtype = data["event_time"].dtype
-    tokens = data["tokens"].squeeze(-1)  # [N, T]
+    tokens: Tensor = data["tokens"].squeeze(-1)  # [N, T]
     indicator = F.one_hot(tokens, num_classes=vocab_size).to(dtype)  # [N, T, K]
     data["indicator"] = indicator
     data["event_time"] = data["event_time"].expand(-1, -1, vocab_size)  # [N, T, K]
@@ -261,16 +301,16 @@ def add_multi_event_times(
     Reads: 'tokens' [N, T, 1], 'time' [N, T, 1].
     Writes: 'event_time' [N, T, K], 'indicator' [N, T, K].
     """
-    time = data["time"]  # [N, T, 1]
-    tokens = data["tokens"].squeeze(-1)  # [N, T] (required by F.one_hot)
+    time: Tensor = data["time"]  # [N, T, 1]
+    tokens: Tensor = data["tokens"].squeeze(-1)  # [N, T] (required by F.one_hot)
     event_mask = F.one_hot(tokens, num_classes=vocab_size).to(torch.bool)
-    event_times = time.expand(-1, -1, vocab_size)  # [N, T, 1] -> [N, T, K]
+    event_times: Tensor = time.expand(-1, -1, vocab_size)  # [N, T, 1] -> [N, T, K]
     event_times = event_times.masked_fill(~event_mask, torch.inf)
     # Suffix min, then shift forward by 1 to get strictly next occurrence
     event_times_reversed = torch.flip(event_times, dims=[1])
     suffix_min = torch.flip(torch.cummin(event_times_reversed, dim=1).values, dims=[1])
     next_time = F.pad(suffix_min[:, 1:], (0, 0, 0, 1), value=torch.inf)
-    event_time = next_time - time  # [N, T, K] - [N, T, 1] broadcasts
+    event_time: Tensor = next_time - time  # [N, T, K] - [N, T, 1] broadcasts
     if horizon is None:
         horizon = event_time[event_time.isfinite()].max()
     data["event_time"] = event_time.clamp(max=horizon)
