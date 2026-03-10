@@ -6,6 +6,7 @@ readme = "README.md"
 authors = [{ name = "Elliot Hill", email = "elliot.douglas.hill@gmail.com" }]
 requires-python = ">=3.13"
 dependencies = ["tensordict>=0.11.0", "torch>=2.10.0"]
+
 [dependency-groups]
 dev = [
     "numpydoc>=1.10.0",
