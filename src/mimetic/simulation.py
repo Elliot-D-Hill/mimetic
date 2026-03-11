@@ -1,290 +1,281 @@
 from __future__ import annotations
 
-from typing import Literal
+from collections.abc import Sequence
+from typing import Protocol
 
 import torch
 from tensordict import TensorDict
 from torch import Tensor
 
-from .covariance import make_residual_covariance
+from .covariance import ResidualCovarianceSpec, make_residual_covariance
 from .functional import (
     censor_time,
     competing_risk_indicators,
     competing_risks_events,
     discrete_event_time,
     event_time,
-    linear_output,
+    linear_predictor,
     logistic_output,
     mixture_cure_censoring,
     multi_event_times,
     multiclass_output,
     observation_time,
-    observed_features,
+    observations,
     ordinal_output,
     random_effects,
     survival_indicators,
     tokens,
 )
 
-# -- Leaf states (defined first for readability, order doesn't matter with PEP 563) --
+ObservationCovariance = Tensor | ResidualCovarianceSpec
+
+# -- Public typestate protocols --
 
 
-class _Complete:
-    """Terminal state — only ``.data`` is available."""
-
-    def __init__(self, data: TensorDict) -> None:
-        self._data = data
-
+class _HasData(Protocol):
     @property
-    def data(self) -> TensorDict:
-        return self._data
+    def data(self) -> TensorDict: ...
 
 
-class _HasCompetingIndicators:
-    """Has competing risk indicators; needs discretization."""
-
-    def __init__(self, data: TensorDict) -> None:
-        self._data = data
-
-    @property
-    def data(self) -> TensorDict:
-        return self._data
-
-    def discrete_event_time(self, boundaries: Tensor) -> _Complete:
-        discrete_event_time(self._data, boundaries)
-        return _Complete(self._data)
+class Complete(_HasData, Protocol):
+    """Terminal stage of the fluent interface."""
 
 
-class _HasSurvival:
-    """Has survival indicators; may discretise or tokenize."""
-
-    def __init__(self, data: TensorDict) -> None:
-        self._data = data
-
-    @property
-    def data(self) -> TensorDict:
-        return self._data
-
-    def discrete_event_time(self, boundaries: Tensor) -> _Complete:
-        discrete_event_time(self._data, boundaries)
-        return _Complete(self._data)
-
-    def tokenize(self, vocab_size: int = 1000, concentration: float = 1.0) -> _Complete:
-        tokens(self._data, vocab_size, concentration)
-        return _Complete(self._data)
+class _CanTokenize(_HasData, Protocol):
+    def tokenize(
+        self, vocab_size: int = 1000, concentration: float = 1.0
+    ) -> Complete: ...
 
 
-# -- Survival chain (bottom-up) --
+class HasCompetingIndicators(_HasData, Protocol):
+    """Stage with competing-risk indicators and discretization available."""
+
+    def discrete_event_time(self, boundaries: Tensor) -> Complete: ...
 
 
-class _HasCensored:
-    """Has censor time; needs survival indicators."""
+class HasSurvival(_CanTokenize, Protocol):
+    """Stage with survival indicators available."""
 
-    def __init__(self, data: TensorDict) -> None:
-        self._data = data
-
-    @property
-    def data(self) -> TensorDict:
-        return self._data
-
-    def survival_indicators(self) -> _HasSurvival:
-        survival_indicators(self._data)
-        return _HasSurvival(self._data)
-
-    def tokenize(self, vocab_size: int = 1000, concentration: float = 1.0) -> _Complete:
-        tokens(self._data, vocab_size, concentration)
-        return _Complete(self._data)
+    def discrete_event_time(self, boundaries: Tensor) -> Complete: ...
 
 
-class _HasEventTimeAndTime:
-    """Has event time and observation time; needs censoring."""
+class HasCensored(_CanTokenize, Protocol):
+    """Stage with censor times available."""
 
-    def __init__(self, data: TensorDict) -> None:
-        self._data = data
-
-    @property
-    def data(self) -> TensorDict:
-        return self._data
-
-    def censor_time(self) -> _HasCensored:
-        censor_time(self._data)
-        return _HasCensored(self._data)
-
-    def tokenize(self, vocab_size: int = 1000, concentration: float = 1.0) -> _Complete:
-        tokens(self._data, vocab_size, concentration)
-        return _Complete(self._data)
+    def survival_indicators(self) -> HasSurvival: ...
 
 
-class _HasEventTime:
-    """Has event time; needs observation time."""
+class HasEventTimeAndTime(_CanTokenize, Protocol):
+    """Stage with event and observation times available."""
 
-    def __init__(self, data: TensorDict) -> None:
-        self._data = data
-
-    @property
-    def data(self) -> TensorDict:
-        return self._data
-
-    def observation_time(self, shape: float, rate: float) -> _HasEventTimeAndTime:
-        observation_time(self._data, shape, rate)
-        return _HasEventTimeAndTime(self._data)
-
-    def tokenize(self, vocab_size: int = 1000, concentration: float = 1.0) -> _Complete:
-        tokens(self._data, vocab_size, concentration)
-        return _Complete(self._data)
+    def censor_time(self) -> HasCensored: ...
 
 
-# -- Classification chain --
+class HasEventTime(_CanTokenize, Protocol):
+    """Stage with event times available."""
+
+    def observation_time(self, shape: float, rate: float) -> HasEventTimeAndTime: ...
 
 
-class _HasClassificationEvent:
-    """Has classification output and event time; may apply mixture cure or observe."""
+class HasClassificationEvent(_CanTokenize, Protocol):
+    """Stage with classification output and event times available."""
 
-    def __init__(self, data: TensorDict) -> None:
-        self._data = data
+    def mixture_cure_censoring(self) -> HasEventTime: ...
 
-    @property
-    def data(self) -> TensorDict:
-        return self._data
-
-    def mixture_cure_censoring(self) -> _HasEventTime:
-        mixture_cure_censoring(self._data)
-        return _HasEventTime(self._data)
-
-    def observation_time(self, shape: float, rate: float) -> _HasEventTimeAndTime:
-        observation_time(self._data, shape, rate)
-        return _HasEventTimeAndTime(self._data)
-
-    def tokenize(self, vocab_size: int = 1000, concentration: float = 1.0) -> _Complete:
-        tokens(self._data, vocab_size, concentration)
-        return _Complete(self._data)
+    def observation_time(self, shape: float, rate: float) -> HasEventTimeAndTime: ...
 
 
-class _HasClassification:
-    """Has classification output (logistic/multiclass/ordinal)."""
+class HasClassification(_CanTokenize, Protocol):
+    """Stage with classification outputs available."""
 
-    def __init__(self, data: TensorDict) -> None:
-        self._data = data
-
-    @property
-    def data(self) -> TensorDict:
-        return self._data
-
-    def event_time(self) -> _HasClassificationEvent:
-        event_time(self._data)
-        return _HasClassificationEvent(self._data)
-
-    def tokenize(self, vocab_size: int = 1000, concentration: float = 1.0) -> _Complete:
-        tokens(self._data, vocab_size, concentration)
-        return _Complete(self._data)
+    def event_time(self) -> HasClassificationEvent: ...
 
 
-# -- Competing risks chain --
+class HasCompetingEvents(_HasData, Protocol):
+    """Stage with competing-risk events available."""
 
-
-class _HasCompetingEvents:
-    """Has competing risks events; needs indicators or multi-event times."""
-
-    def __init__(self, data: TensorDict) -> None:
-        self._data = data
-
-    @property
-    def data(self) -> TensorDict:
-        return self._data
-
-    def competing_risk_indicators(self, vocab_size: int) -> _HasCompetingIndicators:
-        competing_risk_indicators(self._data, vocab_size)
-        return _HasCompetingIndicators(self._data)
+    def competing_risk_indicators(self, vocab_size: int) -> HasCompetingIndicators: ...
 
     def multi_event_times(
         self, vocab_size: int, horizon: float | Tensor
-    ) -> _HasCompetingIndicators:
-        multi_event_times(self._data, vocab_size, horizon)
-        return _HasCompetingIndicators(self._data)
+    ) -> HasCompetingIndicators: ...
 
 
-# -- Output --
+class HasEta(_CanTokenize, Protocol):
+    """Stage with the linear predictor available."""
+
+    def logistic_output(self) -> HasClassification: ...
+
+    def multiclass_output(self) -> HasClassification: ...
+
+    def ordinal_output(self, num_classes: int) -> HasClassification: ...
+
+    def event_time(self) -> HasEventTime: ...
 
 
-class _HasOutput:
-    """Has linear output; may add classification, event time, or tokenize."""
+class HasObservations(_CanTokenize, Protocol):
+    """Stage with observed trajectories available."""
 
-    def __init__(self, data: TensorDict) -> None:
-        self._data = data
+    def linear_predictor(self, weight: Tensor, prevalence: float) -> HasEta: ...
 
-    @property
-    def data(self) -> TensorDict:
-        return self._data
+    def competing_risks_events(self, vocab_size: int) -> HasCompetingEvents: ...
 
-    def logistic_output(self) -> _HasClassification:
-        logistic_output(self._data)
-        return _HasClassification(self._data)
+    def logistic(self, weight: Tensor, prevalence: float) -> HasClassification: ...
 
-    def multiclass_output(self) -> _HasClassification:
-        multiclass_output(self._data)
-        return _HasClassification(self._data)
-
-    def ordinal_output(self, num_classes: int) -> _HasClassification:
-        ordinal_output(self._data, num_classes)
-        return _HasClassification(self._data)
-
-    def event_time(self) -> _HasEventTime:
-        event_time(self._data)
-        return _HasEventTime(self._data)
-
-    def tokenize(self, vocab_size: int = 1000, concentration: float = 1.0) -> _Complete:
-        tokens(self._data, vocab_size, concentration)
-        return _Complete(self._data)
-
-
-# -- Features --
-
-
-class _HasFeatures:
-    """Has observed features; entry point for outcomes and macros."""
-
-    def __init__(self, data: TensorDict) -> None:
-        self._data = data
-
-    @property
-    def data(self) -> TensorDict:
-        return self._data
-
-    # -- Low-level steps --
-
-    def linear_output(self, weight: Tensor, prevalence: float) -> _HasOutput:
-        linear_output(self._data, weight, prevalence)
-        return _HasOutput(self._data)
-
-    def competing_risks_events(self, vocab_size: int) -> _HasCompetingEvents:
-        competing_risks_events(self._data, vocab_size)
-        return _HasCompetingEvents(self._data)
-
-    def tokenize(self, vocab_size: int = 1000, concentration: float = 1.0) -> _Complete:
-        tokens(self._data, vocab_size, concentration)
-        return _Complete(self._data)
-
-    # -- High-level macros --
-
-    def linear(self, weight: Tensor, prevalence: float) -> _HasOutput:
-        return self.linear_output(weight, prevalence)
-
-    def logistic(self, weight: Tensor, prevalence: float) -> _HasClassification:
-        return self.linear_output(weight, prevalence).logistic_output()
-
-    def multiclass(self, weight: Tensor, prevalence: float) -> _HasClassification:
-        return self.linear_output(weight, prevalence).multiclass_output()
+    def multiclass(self, weight: Tensor, prevalence: float) -> HasClassification: ...
 
     def ordinal(
         self, weight: Tensor, prevalence: float, num_classes: int
-    ) -> _HasClassification:
-        return self.linear_output(weight, prevalence).ordinal_output(num_classes)
+    ) -> HasClassification: ...
 
     def survival(
         self, weight: Tensor, prevalence: float, shape: float, rate: float
-    ) -> _HasSurvival:
+    ) -> HasSurvival: ...
+
+    def mixture_cure(
+        self, weight: Tensor, prevalence: float, shape: float, rate: float
+    ) -> HasSurvival: ...
+
+    def competing_risk(self, vocab_size: int, boundaries: Tensor) -> Complete: ...
+
+    def multi_event(self, vocab_size: int, boundaries: Tensor) -> Complete: ...
+
+
+class HasRandomEffects(_HasData, Protocol):
+    """Stage with random effects configured."""
+
+    def observations(
+        self,
+        num_timepoints: int,
+        observed_std: float,
+        *,
+        covariance: ObservationCovariance | None = None,
+        num_fixed_effects: int = 0,
+    ) -> HasObservations: ...
+
+
+class _BaseStage:
+    def __init__(self, data: TensorDict) -> None:
+        self._data = data
+
+    @property
+    def data(self) -> TensorDict:
+        return self._data
+
+
+class _CompleteStage(_BaseStage):
+    pass
+
+
+class _TokenizableStage(_BaseStage):
+    def tokenize(
+        self, vocab_size: int = 1000, concentration: float = 1.0
+    ) -> _CompleteStage:
+        tokens(self._data, vocab_size, concentration)
+        return _CompleteStage(self._data)
+
+
+class _CompetingIndicatorsStage(_BaseStage):
+    def discrete_event_time(self, boundaries: Tensor) -> _CompleteStage:
+        discrete_event_time(self._data, boundaries)
+        return _CompleteStage(self._data)
+
+
+class _SurvivalStage(_TokenizableStage):
+    def discrete_event_time(self, boundaries: Tensor) -> _CompleteStage:
+        discrete_event_time(self._data, boundaries)
+        return _CompleteStage(self._data)
+
+
+class _CensoredStage(_TokenizableStage):
+    def survival_indicators(self) -> _SurvivalStage:
+        survival_indicators(self._data)
+        return _SurvivalStage(self._data)
+
+
+class _EventTimeAndTimeStage(_TokenizableStage):
+    def censor_time(self) -> _CensoredStage:
+        censor_time(self._data)
+        return _CensoredStage(self._data)
+
+
+class _ObservationTimeStage(_TokenizableStage):
+    def observation_time(self, shape: float, rate: float) -> _EventTimeAndTimeStage:
+        observation_time(self._data, shape, rate)
+        return _EventTimeAndTimeStage(self._data)
+
+
+class _EventTimeStage(_ObservationTimeStage):
+    pass
+
+
+class _ClassificationEventStage(_ObservationTimeStage):
+    def mixture_cure_censoring(self) -> _EventTimeStage:
+        mixture_cure_censoring(self._data)
+        return _EventTimeStage(self._data)
+
+
+class _ClassificationStage(_TokenizableStage):
+    def event_time(self) -> _ClassificationEventStage:
+        event_time(self._data)
+        return _ClassificationEventStage(self._data)
+
+
+class _CompetingEventsStage(_BaseStage):
+    def competing_risk_indicators(self, vocab_size: int) -> _CompetingIndicatorsStage:
+        competing_risk_indicators(self._data, vocab_size)
+        return _CompetingIndicatorsStage(self._data)
+
+    def multi_event_times(
+        self, vocab_size: int, horizon: float | Tensor
+    ) -> _CompetingIndicatorsStage:
+        multi_event_times(self._data, vocab_size, horizon)
+        return _CompetingIndicatorsStage(self._data)
+
+
+class _EtaStage(_TokenizableStage):
+    def logistic_output(self) -> _ClassificationStage:
+        logistic_output(self._data)
+        return _ClassificationStage(self._data)
+
+    def multiclass_output(self) -> _ClassificationStage:
+        multiclass_output(self._data)
+        return _ClassificationStage(self._data)
+
+    def ordinal_output(self, num_classes: int) -> _ClassificationStage:
+        ordinal_output(self._data, num_classes)
+        return _ClassificationStage(self._data)
+
+    def event_time(self) -> _EventTimeStage:
+        event_time(self._data)
+        return _EventTimeStage(self._data)
+
+
+class _ObservationsStage(_TokenizableStage):
+    def linear_predictor(self, weight: Tensor, prevalence: float) -> _EtaStage:
+        linear_predictor(self._data, weight, prevalence)
+        return _EtaStage(self._data)
+
+    def competing_risks_events(self, vocab_size: int) -> _CompetingEventsStage:
+        competing_risks_events(self._data, vocab_size)
+        return _CompetingEventsStage(self._data)
+
+    def logistic(self, weight: Tensor, prevalence: float) -> _ClassificationStage:
+        return self.linear_predictor(weight, prevalence).logistic_output()
+
+    def multiclass(self, weight: Tensor, prevalence: float) -> _ClassificationStage:
+        return self.linear_predictor(weight, prevalence).multiclass_output()
+
+    def ordinal(
+        self, weight: Tensor, prevalence: float, num_classes: int
+    ) -> _ClassificationStage:
+        return self.linear_predictor(weight, prevalence).ordinal_output(num_classes)
+
+    def survival(
+        self, weight: Tensor, prevalence: float, shape: float, rate: float
+    ) -> _SurvivalStage:
         return (
-            self.linear_output(weight, prevalence)
+            self.linear_predictor(weight, prevalence)
             .event_time()
             .observation_time(shape, rate)
             .censor_time()
@@ -293,9 +284,9 @@ class _HasFeatures:
 
     def mixture_cure(
         self, weight: Tensor, prevalence: float, shape: float, rate: float
-    ) -> _HasSurvival:
+    ) -> _SurvivalStage:
         return (
-            self.linear_output(weight, prevalence)
+            self.linear_predictor(weight, prevalence)
             .logistic_output()
             .event_time()
             .mixture_cure_censoring()
@@ -304,14 +295,14 @@ class _HasFeatures:
             .survival_indicators()
         )
 
-    def competing_risk(self, vocab_size: int, boundaries: Tensor) -> _Complete:
+    def competing_risk(self, vocab_size: int, boundaries: Tensor) -> _CompleteStage:
         return (
             self.competing_risks_events(vocab_size)
             .competing_risk_indicators(vocab_size)
             .discrete_event_time(boundaries)
         )
 
-    def multi_event(self, vocab_size: int, boundaries: Tensor) -> _Complete:
+    def multi_event(self, vocab_size: int, boundaries: Tensor) -> _CompleteStage:
         return (
             self.competing_risks_events(vocab_size)
             .multi_event_times(vocab_size, boundaries[-1])
@@ -319,44 +310,28 @@ class _HasFeatures:
         )
 
 
-# -- Setup --
-
-
-class _HasRandomEffects:
-    """Has random effects; needs observed features."""
-
-    def __init__(self, data: TensorDict) -> None:
-        self._data = data
-        self._covariance_type: Literal["isotropic", "ar1", "lkj"] = "isotropic"
-        self._covariance_kwargs: dict = {}
-
-    @property
-    def data(self) -> TensorDict:
-        return self._data
-
-    def covariance_ar1(self, correlation: float = 0.9) -> _HasRandomEffects:
-        self._covariance_type = "ar1"
-        self._covariance_kwargs = {"correlation": correlation}
-        return self
-
-    def covariance_isotropic(self) -> _HasRandomEffects:
-        self._covariance_type = "isotropic"
-        self._covariance_kwargs = {}
-        return self
-
-    def covariance_lkj(self, concentration: float = 1.0) -> _HasRandomEffects:
-        self._covariance_type = "lkj"
-        self._covariance_kwargs = {"concentration": concentration}
-        return self
-
-    def observed_features(
-        self, num_timepoints: int, observed_std: float
-    ) -> _HasFeatures:
-        covariance = make_residual_covariance(
-            num_timepoints, self._covariance_type, **self._covariance_kwargs
+class _RandomEffectsStage(_BaseStage):
+    def observations(
+        self,
+        num_timepoints: int,
+        observed_std: float,
+        *,
+        covariance: ObservationCovariance | None = None,
+        num_fixed_effects: int = 0,
+    ) -> _ObservationsStage:
+        covariance_matrix = (
+            covariance
+            if isinstance(covariance, Tensor)
+            else make_residual_covariance(num_timepoints, covariance)
         )
-        observed_features(self._data, num_timepoints, observed_std, covariance)
-        return _HasFeatures(self._data)
+        observations(
+            self._data,
+            num_timepoints,
+            observed_std,
+            covariance_matrix,
+            num_fixed_effects,
+        )
+        return _ObservationsStage(self._data)
 
 
 class Simulation:
@@ -382,11 +357,7 @@ class Simulation:
         return self._data
 
     def random_effects(
-        self,
-        hidden_dim: int,
-        intercept_std: float,
-        slope_std: float = 0.0,
-        correlation: float = 0.0,
-    ) -> _HasRandomEffects:
-        random_effects(self._data, hidden_dim, intercept_std, slope_std, correlation)
-        return _HasRandomEffects(self._data)
+        self, hidden_dim: int, stds: Sequence[float], correlation: Tensor | float = 0.0
+    ) -> HasRandomEffects:
+        random_effects(self._data, hidden_dim, stds, correlation)
+        return _RandomEffectsStage(self._data)

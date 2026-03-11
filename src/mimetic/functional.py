@@ -1,3 +1,5 @@
+from collections.abc import Sequence
+
 import torch
 import torch.distributions as dist
 import torch.nn.functional as F
@@ -8,77 +10,96 @@ from torch import Tensor, arange, randn
 def random_effects(
     data: TensorDict,
     hidden_dim: int,
-    intercept_std: float,
-    slope_std: float = 0.0,
-    correlation: float = 0.0,
+    stds: Sequence[float],
+    correlation: Tensor | float = 0.0,
 ) -> TensorDict:
     """Sample random effects γ_i from N(0, Q) (Fahrmeir et al., Eq. 7.11).
 
-    When correlation is zero, samples intercepts and slopes independently.
-    When nonzero, samples jointly from the 2×2 covariance Q.
+    When correlation is zero, samples each random effect independently.
+    Otherwise, samples jointly from the q×q covariance Q.
 
     Reads: 'id' [N, 1, 1].
-    Writes: 'random_intercept' [N, 1, D], 'random_slope' [N, 1, D].
+    Writes: 'gamma' [N, q, D].
 
     Args:
         hidden_dim: Dimensionality D of latent features.
-        intercept_std: Standard deviation of random intercepts (τ₀).
-        slope_std: Standard deviation of random slopes (τ₁).
-        correlation: Correlation between intercepts and slopes (ρ).
+        stds: Standard deviations for each random effect; len determines q.
+        correlation: Off-diagonal correlation. Float gives compound symmetry,
+            Tensor gives a user-provided [q, q] correlation matrix.
     """
     num_samples: int = data["id"].shape[0]
-    if correlation == 0.0:
-        data["random_intercept"] = (
-            randn(num_samples, 1, hidden_dim) * intercept_std
-        )  # [N, 1, D]
-        data["random_slope"] = (
-            randn(num_samples, 1, hidden_dim) * slope_std
-        )  # [N, 1, D]
+    q = len(stds)
+    if isinstance(correlation, float) and correlation == 0.0:
+        gamma = torch.cat(
+            [randn(num_samples, 1, hidden_dim) * std for std in stds], dim=1
+        )  # [N, q, D]
     else:
         from .covariance import make_random_effects_covariance
 
-        Q = make_random_effects_covariance(intercept_std, slope_std, correlation)
-        mvn = dist.MultivariateNormal(torch.zeros(Q.shape[0]), Q)
+        Q = make_random_effects_covariance(stds, correlation)
+        mvn = dist.MultivariateNormal(torch.zeros(q), Q)
         samples = mvn.sample((num_samples, hidden_dim))  # [N, D, q]
-        samples = samples.permute(0, 2, 1)  # [N, q, D]
-        data["random_intercept"] = samples[:, 0:1, :]  # [N, 1, D]
-        data["random_slope"] = samples[:, 1:2, :]  # [N, 1, D]
+        gamma = samples.permute(0, 2, 1)  # [N, q, D]
+    data["gamma"] = gamma
     return data
 
 
-def observed_features(
-    data: TensorDict, num_timepoints: int, observed_std: float, covariance: Tensor
+def observations(
+    data: TensorDict,
+    num_timepoints: int,
+    observed_std: float,
+    covariance: Tensor,
+    num_fixed_effects: int = 0,
 ) -> TensorDict:
-    """Generate observed features y_i = U_i·γ_i + ε_i with residual covariance Σ.
+    """Generate GLMM observations y_i = X_i·β + U_i·γ_i + ε_i (Fahrmeir Box 7.1).
 
-    Composes random effects (intercept + slope × time) with temporally
-    correlated residual noise drawn from N(0, σ²·Σ).
+    Reads: 'gamma' [N, q, D].
+    Writes: 'y' [N, T, D], 'U' [N, T, q], 'time' [N, T, 1].
+        When num_fixed_effects > 0: 'X' [N, T, p], 'beta' [N, p, D].
 
-    Reads: 'random_intercept' [N, 1, D], 'random_slope' [N, 1, D].
-    Writes: 'features' [N, T, D].
+    Args:
+        num_timepoints: Number of time points T.
+        observed_std: Residual standard deviation σ.
+        covariance: Residual correlation matrix Σ [T, T].
+        num_fixed_effects: Number of fixed-effect predictors p. Zero means no
+            fixed effects (y = Uγ + ε).
     """
-    intercept: Tensor = data["random_intercept"]  # [N, 1, D]
-    covariance = covariance * observed_std**2
-    num_samples, _, hidden_dim = intercept.shape
-    mvn = dist.MultivariateNormal(torch.zeros(num_timepoints), covariance)
+    gamma: Tensor = data["gamma"]  # [N, q, D]
+    num_samples, q, hidden_dim = gamma.shape
+    # U: polynomial basis [1, t, t², ..., t^(q-1)]
+    t = arange(num_timepoints, dtype=torch.float32)  # [T]
+    U = torch.stack([t**k for k in range(q)], dim=1)  # [T, q]
+    U = U.unsqueeze(0).expand(num_samples, -1, -1)  # [N, T, q]
+    random = torch.bmm(U, gamma)  # [N, T, D]
+    # Fixed effects
+    if num_fixed_effects > 0:
+        p = num_fixed_effects
+        X = randn(num_samples, num_timepoints, p)
+        beta = randn(num_samples, p, hidden_dim)
+        fixed = torch.bmm(X, beta)  # [N, T, D]
+        data["X"] = X
+        data["beta"] = beta
+    else:
+        fixed = 0.0
+    # Residual noise
+    scaled_cov = covariance * observed_std**2
+    mvn = dist.MultivariateNormal(torch.zeros(num_timepoints), scaled_cov)
     noise = mvn.sample((num_samples, hidden_dim))  # [N, D, T]
     noise = noise.permute(0, 2, 1)  # [N, T, D]
-    time_index = arange(num_timepoints, dtype=noise.dtype)  # [T]
-    time_index = time_index.view(1, -1, 1)  # [1, T, 1]
-    data["time"] = time_index.expand(num_samples, -1, -1)  # [N, T, 1]
-    data["features"] = (
-        intercept + noise + data["random_slope"] * time_index
-    )  # [N, T, D]
+    data["y"] = fixed + random + noise  # [N, T, D]
+    data["U"] = U
+    time_vals = arange(num_timepoints, dtype=torch.float32).view(1, -1, 1)
+    data["time"] = time_vals.expand(num_samples, -1, -1)  # [N, T, 1]
     return data
 
 
 def tokens(data: TensorDict, vocab_size: int, concentration: float = 1.0) -> TensorDict:
     """Tokenize observed features via Dirichlet-skewed softmax.
 
-    Reads: 'features' [N, T, D].
+    Reads: 'y' [N, T, D].
     Writes: 'tokens' [N, T, 1].
     """
-    features = data["features"]
+    features = data["y"]
     hidden_dim = features.shape[-1]
     weight = randn(vocab_size, hidden_dim)
     logits = F.linear(features, weight)
@@ -91,16 +112,16 @@ def tokens(data: TensorDict, vocab_size: int, concentration: float = 1.0) -> Ten
     return data
 
 
-def linear_output(data: TensorDict, weight: Tensor, prevalence: float) -> TensorDict:
-    """Compute linear output from latent features and store ground truth parameters.
+def linear_predictor(data: TensorDict, weight: Tensor, prevalence: float) -> TensorDict:
+    """Compute linear predictor η from random intercept (Fahrmeir Box 7.1).
 
-    Reads: 'random_intercept' [N, 1, D].
-    Writes: 'output' [N, 1, K], 'coefficients' [N, K, D], 'intercept' [N, 1, 1].
+    Reads: 'gamma' [N, q, D].
+    Writes: 'eta' [N, 1, K], 'coefficients' [N, K, D], 'intercept' [N, 1, 1].
     """
     event_rate = weight.new_tensor(prevalence)
     event_rate = torch.log(event_rate / (1 - event_rate))
-    output = F.linear(input=data["random_intercept"], weight=weight, bias=event_rate)
-    data["output"] = output  # [N, 1, 1]
+    output = F.linear(input=data["gamma"][:, 0:1, :], weight=weight, bias=event_rate)
+    data["eta"] = output  # [N, 1, K]
     num_samples = data.batch_size[0]
     data["coefficients"] = weight.unsqueeze(0).expand(num_samples, -1, -1)  # [N, K, D]
     data["intercept"] = event_rate.view(1, 1, 1).expand(
@@ -110,24 +131,24 @@ def linear_output(data: TensorDict, weight: Tensor, prevalence: float) -> Tensor
 
 
 def logistic_output(data: TensorDict) -> TensorDict:
-    """Compute logistic probability and binary label from linear output.
+    """Compute logistic probability and binary label from linear predictor.
 
-    Reads: 'output' [N, 1, K].
+    Reads: 'eta' [N, 1, K].
     Writes: 'probability' [N, 1, K], 'label' [N, 1, K].
     """
-    probability = torch.sigmoid(data["output"])
+    probability = torch.sigmoid(data["eta"])
     data["probability"] = probability
     data["label"] = torch.bernoulli(probability)
     return data
 
 
 def multiclass_output(data: TensorDict) -> TensorDict:
-    """Compute multiclass probability and class label from linear output.
+    """Compute multiclass probability and class label from linear predictor.
 
-    Reads: 'output' [N, 1, K].
+    Reads: 'eta' [N, 1, K].
     Writes: 'probability' [N, 1, K], 'label' [N, 1, 1].
     """
-    probability = torch.softmax(data["output"], dim=-1)
+    probability = torch.softmax(data["eta"], dim=-1)
     data["probability"] = probability
     data["label"] = dist.Categorical(probs=probability).sample().unsqueeze(-1)
     return data
@@ -136,10 +157,10 @@ def multiclass_output(data: TensorDict) -> TensorDict:
 def ordinal_output(data: TensorDict, num_classes: int) -> TensorDict:
     """Compute ordinal probability and label via cumulative logit model.
 
-    Reads: 'output' [N, 1, 1].
+    Reads: 'eta' [N, 1, 1].
     Writes: 'probability' [N, 1, K], 'label' [N, 1, 1].
     """
-    output: Tensor = data["output"]  # [N, 1, 1]
+    output: Tensor = data["eta"]  # [N, 1, 1]
     # K-1 evenly spaced thresholds centered at 0
     thresholds = torch.linspace(-2, 2, num_classes - 1)  # [K-1]
     # Cumulative P(Y <= k) = sigmoid(threshold_k - output)
@@ -157,10 +178,10 @@ def ordinal_output(data: TensorDict, num_classes: int) -> TensorDict:
 def event_time(data: TensorDict) -> TensorDict:
     """Sample event time from exponential distribution.
 
-    Reads: 'output'.
+    Reads: 'eta'.
     Writes: 'event_time'.
     """
-    rate = torch.exp(data["output"])
+    rate = torch.exp(data["eta"])
     data["event_time"] = dist.Exponential(rate=rate).sample()
     return data
 
@@ -178,13 +199,13 @@ def mixture_cure_censoring(data: TensorDict) -> TensorDict:
 def observation_time(data: TensorDict, shape: float, rate: float) -> TensorDict:
     """Sample observation times from Gamma-distributed intervals.
 
-    Reads: 'features' (for shape inference).
+    Reads: 'y' (for shape inference).
     Writes: 'time' [N, T, 1].
     """
-    num_samples: int = data["features"].shape[0]
-    num_timepoints: int = data["features"].shape[1]
-    gamma = dist.Gamma(shape, rate)
-    time_intervals = gamma.sample((num_samples, num_timepoints, 1))  # [N, T, 1]
+    num_samples: int = data["y"].shape[0]
+    num_timepoints: int = data["y"].shape[1]
+    gamma_dist = dist.Gamma(shape, rate)
+    time_intervals = gamma_dist.sample((num_samples, num_timepoints, 1))  # [N, T, 1]
     data["time"] = time_intervals.cumsum(dim=1)  # [N, T, 1]
     return data
 
@@ -226,11 +247,11 @@ def competing_risks_events(data: TensorDict, vocab_size: int) -> TensorDict:
     from feature-conditioned Weibull distributions. The observed event is
     the one with minimum failure time.
 
-    Reads: 'features' [N, T, D].
+    Reads: 'y' [N, T, D].
     Writes: 'tokens' [N, T, 1], 'event_time' [N, T, 1], 'time' [N, T, 1],
             'failure_times' [N, T, K].
     """
-    features: Tensor = data["features"]
+    features: Tensor = data["y"]
     # Project features to Weibull log-parameters
     weight_alpha = randn(vocab_size, features.shape[-1])
     weight_beta = randn(vocab_size, features.shape[-1])

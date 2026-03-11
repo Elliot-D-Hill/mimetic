@@ -7,7 +7,7 @@ It supports:
 
 - regression and classification targets from latent subject structure
 - repeated observations with temporal covariance
-- grouped data with random intercepts and slopes
+- grouped data with arbitrary random effects (intercepts, slopes, etc.)
 - survival, mixture-cure, competing-risk, and multi-event outcomes
 - tokenized sequence views of the same trajectories
 
@@ -35,16 +35,19 @@ each step.
 
 ```python
 import torch
-from mimetic import Simulation
+from mimetic import AR1Covariance, Simulation
 
 weight = torch.randn(1, 8) * 0.5
 
 # High-level: one chained call
 data = (
     Simulation(num_samples=1024)
-    .random_effects(hidden_dim=8, intercept_std=1.0, slope_std=0.1)
-    .covariance_ar1(correlation=0.8)
-    .observed_features(num_timepoints=10, observed_std=0.25)
+    .random_effects(hidden_dim=8, stds=[1.0, 0.1])
+    .observations(
+        num_timepoints=10,
+        observed_std=0.25,
+        covariance=AR1Covariance(correlation=0.8),
+    )
     .mixture_cure(weight=weight, prevalence=0.3, shape=2.0, rate=1.0)
     .tokenize(vocab_size=256)
     .data
@@ -57,10 +60,13 @@ The same simulated dataset built incrementally, calling each step:
 ```python
 data = (
     Simulation(num_samples=1024)
-    .random_effects(hidden_dim=8, intercept_std=1.0, slope_std=0.1)
-    .covariance_ar1(correlation=0.8)
-    .observed_features(num_timepoints=10, observed_std=0.25)
-    .linear_output(weight=weight, prevalence=0.3)
+    .random_effects(hidden_dim=8, stds=[1.0, 0.1])
+    .observations(
+        num_timepoints=10,
+        observed_std=0.25,
+        covariance=AR1Covariance(correlation=0.8),
+    )
+    .linear_predictor(weight=weight, prevalence=0.3)
     .logistic_output()
     .event_time()
     .mixture_cure_censoring()
@@ -75,18 +81,17 @@ data = (
 Typical outputs include:
 
 - `id`, `group`
-- `random_intercept`, `random_slope`, `features`
+- `gamma` (random effects), `y` (observed trajectories), `U` (design matrix)
 - `tokens`
-- `output`, `coefficients`, `intercept`
+- `eta` (linear predictor), `coefficients`, `intercept`
 - `probability` and `label` for classification tasks
 - `time`, `event_time`, `censor_time`, `indicator`, `observed_time`,
   `time_to_event` for survival-style tasks
 
 ## Supported Tasks
 
-High-level macros on `_HasFeatures` compose the full pipeline for common tasks:
+High-level macros on the observations stage compose the full pipeline for common tasks:
 
-- `.linear()` — linear regression
 - `.logistic()` — binary classification
 - `.multiclass()` — multi-class classification
 - `.ordinal()` — ordinal regression
