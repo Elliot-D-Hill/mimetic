@@ -6,29 +6,43 @@ from torch import Tensor, arange, randn
 
 
 def random_effects(
-    data: TensorDict, hidden_dim: int, latent_std: float, slope_std: float = 0.0
+    data: TensorDict,
+    hidden_dim: int,
+    intercept_std: float,
+    slope_std: float = 0.0,
+    correlation: float = 0.0,
 ) -> TensorDict:
-    """Sample random effects γ_i with diagonal covariance Q (Fahrmeir et al., §7.1).
+    """Sample random effects γ_i from N(0, Q) (Fahrmeir et al., Eq. 7.11).
 
-    Samples per-subject random intercepts and slopes independently:
-
-        γ_{0i} ~ N(0, latent_std²·I)   (random intercepts)
-        γ_{1i} ~ N(0, slope_std²·I)    (random slopes)
+    When correlation is zero, samples intercepts and slopes independently.
+    When nonzero, samples jointly from the 2×2 covariance Q.
 
     Reads: 'id' [N, 1, 1].
     Writes: 'random_intercept' [N, 1, D], 'random_slope' [N, 1, D].
 
     Args:
-        hidden_dim: dimensionality D of latent features.
-        latent_std: standard deviation of random intercepts (τ₀).
-        slope_std: standard deviation of random slopes (τ₁). Default 0.0
-            (no temporal trend).
+        hidden_dim: Dimensionality D of latent features.
+        intercept_std: Standard deviation of random intercepts (τ₀).
+        slope_std: Standard deviation of random slopes (τ₁).
+        correlation: Correlation between intercepts and slopes (ρ).
     """
     num_samples: int = data["id"].shape[0]
-    data["random_intercept"] = (
-        randn(num_samples, 1, hidden_dim) * latent_std
-    )  # [N, 1, D]
-    data["random_slope"] = randn(num_samples, 1, hidden_dim) * slope_std  # [N, 1, D]
+    if correlation == 0.0:
+        data["random_intercept"] = (
+            randn(num_samples, 1, hidden_dim) * intercept_std
+        )  # [N, 1, D]
+        data["random_slope"] = (
+            randn(num_samples, 1, hidden_dim) * slope_std
+        )  # [N, 1, D]
+    else:
+        from .covariance import make_random_effects_covariance
+
+        Q = make_random_effects_covariance(intercept_std, slope_std, correlation)
+        mvn = dist.MultivariateNormal(torch.zeros(Q.shape[0]), Q)
+        samples = mvn.sample((num_samples, hidden_dim))  # [N, D, q]
+        samples = samples.permute(0, 2, 1)  # [N, q, D]
+        data["random_intercept"] = samples[:, 0:1, :]  # [N, 1, D]
+        data["random_slope"] = samples[:, 1:2, :]  # [N, 1, D]
     return data
 
 
@@ -51,6 +65,7 @@ def observed_features(
     noise = noise.permute(0, 2, 1)  # [N, T, D]
     time_index = arange(num_timepoints, dtype=noise.dtype)  # [T]
     time_index = time_index.view(1, -1, 1)  # [1, T, 1]
+    data["time"] = time_index.expand(num_samples, -1, -1)  # [N, T, 1]
     data["features"] = (
         intercept + noise + data["random_slope"] * time_index
     )  # [N, T, D]

@@ -23,7 +23,9 @@ def test_task_pipeline_smoke() -> None:
         },
         batch_size=[num_samples],
     )
-    data = random_effects(data, hidden_dim=hidden_dim, latent_std=1.0, slope_std=0.05)
+    data = random_effects(
+        data, hidden_dim=hidden_dim, intercept_std=1.0, slope_std=0.05
+    )
     covariance = make_residual_covariance(
         num_timepoints=num_timepoints, covariance_type="ar1", correlation=0.8
     )

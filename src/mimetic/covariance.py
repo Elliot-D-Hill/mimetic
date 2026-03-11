@@ -36,6 +36,28 @@ def lkj_covariance(concentration: float, size: int) -> Tensor:
     return L @ L.T
 
 
+def make_random_effects_covariance(
+    intercept_std: float, slope_std: float = 0.0, correlation: float = 0.0
+) -> Tensor:
+    """Build the random-effects covariance Q (Fahrmeir et al., Eq. 7.11).
+
+    Constructs Q = [[τ₀², τ₀₁], [τ₀₁, τ₁²]] where τ₀₁ = ρ·τ₀·τ₁.
+
+    Args:
+        intercept_std: Standard deviation of random intercepts (τ₀).
+        slope_std: Standard deviation of random slopes (τ₁).
+        correlation: Correlation between intercepts and slopes (ρ).
+    """
+    if correlation != 0.0 and slope_std == 0.0:
+        raise ValueError(
+            "correlation requires slope_std > 0 (no slope to correlate with)"
+        )
+    if slope_std == 0.0:
+        return torch.tensor([[intercept_std**2]])
+    tau_01 = correlation * intercept_std * slope_std
+    return torch.tensor([[intercept_std**2, tau_01], [tau_01, slope_std**2]])
+
+
 def make_residual_covariance(
     num_timepoints: int,
     covariance_type: Literal["isotropic", "ar1", "lkj"] = "isotropic",

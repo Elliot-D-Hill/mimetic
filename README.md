@@ -42,7 +42,7 @@ weight = torch.randn(1, 8) * 0.5
 # High-level: one chained call
 data = (
     Simulation(num_samples=1024)
-    .random_effects(hidden_dim=8, latent_std=1.0, slope_std=0.1)
+    .random_effects(hidden_dim=8, intercept_std=1.0, slope_std=0.1)
     .covariance_ar1(correlation=0.8)
     .observed_features(num_timepoints=10, observed_std=0.25)
     .mixture_cure(weight=weight, prevalence=0.3, shape=2.0, rate=1.0)
@@ -57,7 +57,7 @@ The same simulated dataset built incrementally, calling each step:
 ```python
 data = (
     Simulation(num_samples=1024)
-    .random_effects(hidden_dim=8, latent_std=1.0, slope_std=0.1)
+    .random_effects(hidden_dim=8, intercept_std=1.0, slope_std=0.1)
     .covariance_ar1(correlation=0.8)
     .observed_features(num_timepoints=10, observed_std=0.25)
     .linear_output(weight=weight, prevalence=0.3)

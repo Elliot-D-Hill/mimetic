@@ -125,9 +125,7 @@ class _HasEventTime:
     def data(self) -> TensorDict:
         return self._data
 
-    def observation_time(
-        self, shape: float, rate: float
-    ) -> _HasEventTimeAndTime:
+    def observation_time(self, shape: float, rate: float) -> _HasEventTimeAndTime:
         observation_time(self._data, shape, rate)
         return _HasEventTimeAndTime(self._data)
 
@@ -153,9 +151,7 @@ class _HasClassificationEvent:
         mixture_cure_censoring(self._data)
         return _HasEventTime(self._data)
 
-    def observation_time(
-        self, shape: float, rate: float
-    ) -> _HasEventTimeAndTime:
+    def observation_time(self, shape: float, rate: float) -> _HasEventTimeAndTime:
         observation_time(self._data, shape, rate)
         return _HasEventTimeAndTime(self._data)
 
@@ -386,7 +382,11 @@ class Simulation:
         return self._data
 
     def random_effects(
-        self, hidden_dim: int, latent_std: float, slope_std: float = 0.0
+        self,
+        hidden_dim: int,
+        intercept_std: float,
+        slope_std: float = 0.0,
+        correlation: float = 0.0,
     ) -> _HasRandomEffects:
-        random_effects(self._data, hidden_dim, latent_std, slope_std)
+        random_effects(self._data, hidden_dim, intercept_std, slope_std, correlation)
         return _HasRandomEffects(self._data)
