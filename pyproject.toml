@@ -8,7 +8,13 @@ requires-python = ">=3.13"
 dependencies = ["tensordict>=0.11.0", "torch>=2.10.0"]
 
 [dependency-groups]
-dev = ["numpydoc>=1.10.0", "pyright>=1.1.408", "pytest>=9.0.2", "ruff>=0.15.5"]
+dev = [
+    "marimo>=0.20.4",
+    "numpydoc>=1.10.0",
+    "pyright>=1.1.408",
+    "pytest>=9.0.2",
+    "ruff>=0.15.5",
+]
 
 [build-system]
 requires = ["uv_build>=0.9.9,<0.10.0"]
