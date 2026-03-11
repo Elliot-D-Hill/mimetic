@@ -1,26 +1,10 @@
-from .covariance import make_covariance
-from .pipeline import add_observed_features, add_random_effects
-from .tasks import (
-    competing_risk_data,
-    linear_data,
-    logistic_data,
-    mixture_cure_data,
-    multi_event_data,
-    multiclass_data,
-    ordinal_data,
-    survival_data,
-)
+from .covariance import make_residual_covariance
+from .functional import observed_features, random_effects
+from .simulation import Simulation
 
 __all__ = [
-    "add_observed_features",
-    "add_random_effects",
-    "competing_risk_data",
-    "linear_data",
-    "logistic_data",
-    "make_covariance",
-    "mixture_cure_data",
-    "multi_event_data",
-    "multiclass_data",
-    "ordinal_data",
-    "survival_data",
+    "Simulation",
+    "make_residual_covariance",
+    "observed_features",
+    "random_effects",
 ]
