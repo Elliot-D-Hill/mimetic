@@ -24,7 +24,6 @@ from .functional import (
 )
 from .states import (
     CensoredState,
-    EffectsState,
     EventTimeState,
     LabeledState,
     ObservedState,
@@ -48,64 +47,58 @@ def _to_tensordict(state: Mapping[str, Any]) -> TensorDict:
 class Simulation:
     """Entry point for building synthetic datasets.
 
+    Generates fixed-effects observations y = Xβ + ε on construction.
+    Call `.random_effects()` to upgrade to a GLMM: y = Xβ + Uγ + ε.
+
     Parameters
     ----------
     num_samples
         Number of samples (subjects) to simulate.
+    num_timepoints
+        Number of time points T.
+    num_features
+        Number of design matrix features p.
+    std
+        Residual standard deviation sigma.
+    covariance
+        Residual covariance specification or [T, T] matrix. Defaults to isotropic.
     """
 
-    def __init__(self, num_samples: int) -> None:
-        self._num_samples = num_samples
-
-    @property
-    def data(self) -> TensorDict:
-        return TensorDict({}, batch_size=[self._num_samples])
-
-    def random_effects(
-        self, stds: Sequence[float], correlation: Tensor | float = 0.0
-    ) -> EffectsStep:
-        return EffectsStep(random_effects(self._num_samples, stds, correlation))
-
-
-@dataclass(frozen=True)
-class EffectsStep:
-    state: EffectsState
-
-    @property
-    def data(self) -> TensorDict:
-        return _to_tensordict(self.state)
-
-    def observations(
+    def __init__(
         self,
+        num_samples: int,
         num_timepoints: int,
         num_features: int,
-        observed_std: float,
+        std: float,
         *,
         covariance: ObservationCovariance | None = None,
-    ) -> ObservedStep:
+    ) -> None:
         covariance_matrix = (
             covariance
             if isinstance(covariance, Tensor)
             else residual_covariance(num_timepoints, covariance)
         )
-        return ObservedStep(
-            observations(
-                self.state,
-                num_timepoints,
-                num_features,
-                observed_std,
-                covariance_matrix,
-            )
+        self.state: ObservedState = observations(
+            num_samples, num_timepoints, num_features, std, covariance_matrix
         )
 
-
-@dataclass(frozen=True)
-class ObservedStep:
-    state: ObservedState
+    @classmethod
+    def _from_state(cls, state: ObservedState) -> Simulation:
+        sim = object.__new__(cls)
+        sim.state = state
+        return sim
 
     @property
     def data(self) -> TensorDict:
         return _to_tensordict(self.state)
+
+    def random_effects(
+        self, stds: Sequence[float], correlation: Tensor | float = 0.0
+    ) -> Simulation:
+        return Simulation._from_state(random_effects(self.state, stds, correlation))
+
+    def observation_time(self, shape: float, rate: float) -> Simulation:
+        return Simulation._from_state(replace_observation_time(self.state, shape, rate))
 
     def tokenize(
         self, vocab_size: int = 1000, concentration: float = 1.0
@@ -123,9 +116,6 @@ class ObservedStep:
 
     def event_time(self) -> EventTimeStep:
         return EventTimeStep(event_time(self.state))
-
-    def observation_time(self, shape: float, rate: float) -> ObservedStep:
-        return ObservedStep(replace_observation_time(self.state, shape, rate))
 
 
 @dataclass(frozen=True)

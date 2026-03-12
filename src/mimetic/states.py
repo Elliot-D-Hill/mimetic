@@ -7,17 +7,14 @@ from torch import Tensor
 # ---------------------------------------------------------------------------
 
 
-class EffectsState(TypedDict):
-    gamma: Tensor  # [N, q, 1]
-
-
-class ObservedState(EffectsState):
+class ObservedState(TypedDict):
     y: Tensor  # [N, T, 1]
-    U: Tensor  # [N, T, q]
     time: Tensor  # [N, T, 1]
     eta: Tensor  # [N, T, 1]
     X: Tensor  # [N, T, p]
     beta: Tensor  # [N, p, 1]
+    gamma: NotRequired[Tensor]  # [N, q, 1]
+    U: NotRequired[Tensor]  # [N, T, q]
 
 
 class TokenizedState(ObservedState):

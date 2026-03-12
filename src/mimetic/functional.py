@@ -9,7 +9,6 @@ from torch import Tensor, arange, randn
 from .covariance import random_effects_covariance
 from .states import (
     CensoredState,
-    EffectsState,
     EventTimeState,
     LabeledState,
     ObservedState,
@@ -22,60 +21,64 @@ from .states import (
 # ---------------------------------------------------------------------------
 
 
-def random_effects(
-    num_samples: int, stds: Sequence[float], correlation: Tensor | float = 0.0
-) -> EffectsState:
-    """Sample random effects from N(0, Q) (Fahrmeir et al., Eq. 7.11).
+def observations(
+    num_samples: int,
+    num_timepoints: int,
+    num_features: int,
+    std: float,
+    covariance: Tensor,
+) -> ObservedState:
+    """Generate GLM observations y_i = X_i*beta + eps_i (Fahrmeir Box 7.1).
+
+    Also stores eta = X*beta (the linear predictor before noise).
 
     Args:
         num_samples: Number of subjects N.
-        stds: Standard deviations for each random effect; len determines q.
-        correlation: Off-diagonal correlation. Float gives compound symmetry,
-            Tensor gives a user-provided [q, q] correlation matrix.
-    """
-    q = len(stds)
-    Q = random_effects_covariance(stds, correlation)  # [q, q]
-    mvn = dist.MultivariateNormal(torch.zeros(q), Q)
-    samples = mvn.sample((num_samples,))  # [N, q]
-    gamma = samples.unsqueeze(-1)  # [N, q, 1]
-    return EffectsState(gamma=gamma)
-
-
-def observations(
-    state: EffectsState,
-    num_timepoints: int,
-    num_features: int,
-    observed_std: float,
-    covariance: Tensor,
-) -> ObservedState:
-    """Generate GLMM observations y_i = X_i*beta + U_i*gamma_i + eps_i (Fahrmeir Box 7.1).
-
-    Also stores eta = X*beta + U*gamma (the linear predictor before noise).
-
-    Args:
         num_timepoints: Number of time points T.
-        num_features: Number of design matrix features p. X is always generated.
-        observed_std: Residual standard deviation sigma.
+        num_features: Number of design matrix features p.
+        std: Residual standard deviation sigma.
         covariance: Residual correlation matrix Sigma [T, T].
     """
-    gamma = state["gamma"]  # [N, q, 1]
-    num_samples, q, _ = gamma.shape
-    t = arange(num_timepoints, dtype=torch.float32)  # [T]
-    U = torch.vander(t, N=q, increasing=True)  # [T, q]
-    U = U.unsqueeze(0).expand(num_samples, -1, -1)  # [N, T, q]
-    random_effects = torch.bmm(U, gamma)  # [N, T, 1]
     X = randn(num_samples, num_timepoints, num_features)  # [N, T, p]
     beta = randn(num_samples, num_features, 1)  # [N, p, 1]
-    fixed_effects = torch.bmm(X, beta)  # [N, T, 1]
-    eta = fixed_effects + random_effects  # [N, T, 1]
-    scaled_cov = covariance * observed_std**2
+    eta = torch.bmm(X, beta)  # [N, T, 1]
+    scaled_cov = covariance * std**2
     mvn = dist.MultivariateNormal(torch.zeros(num_timepoints), scaled_cov)
     noise = mvn.sample((num_samples, 1))  # [N, 1, T]
     noise = noise.permute(0, 2, 1)  # [N, T, 1]
     y = eta + noise  # [N, T, 1]
     time_values = arange(num_timepoints, dtype=torch.float32).view(1, -1, 1)
     time = time_values.expand(num_samples, -1, -1)  # [N, T, 1]
-    return ObservedState(**state, y=y, U=U, time=time, eta=eta, X=X, beta=beta)
+    return ObservedState(y=y, time=time, eta=eta, X=X, beta=beta)
+
+
+def random_effects(
+    state: ObservedState, stds: Sequence[float], correlation: Tensor | float = 0.0
+) -> ObservedState:
+    """Add random effects Uγ to an existing ObservedState (Fahrmeir et al., Eq. 7.11).
+
+    Upgrades y = Xβ + ε to y = Xβ + Uγ + ε. U is a Vandermonde (polynomial) basis.
+
+    Args:
+        stds: Standard deviations for each random effect; len determines q.
+        correlation: Off-diagonal correlation. Float gives compound symmetry,
+            Tensor gives a user-provided [q, q] correlation matrix.
+    """
+    q = len(stds)
+    num_samples, num_timepoints, _ = state["y"].shape
+    Q = random_effects_covariance(stds, correlation)  # [q, q]
+    mvn = dist.MultivariateNormal(torch.zeros(q), Q)
+    gamma = mvn.sample((num_samples,)).unsqueeze(-1)  # [N, q, 1]
+    t = arange(num_timepoints, dtype=torch.float32)  # [T]
+    U = torch.vander(t, N=q, increasing=True)  # [T, q]
+    U = U.unsqueeze(0).expand(num_samples, -1, -1)  # [N, T, q]
+    re = torch.bmm(U, gamma)  # [N, T, 1]
+    result = state.copy()
+    result["eta"] = state["eta"] + re  # [N, T, 1]
+    result["y"] = state["y"] + re  # [N, T, 1]
+    result["gamma"] = gamma
+    result["U"] = U
+    return result
 
 
 def tokens(
@@ -85,8 +88,16 @@ def tokens(
 
     Produces 'tokens' [N, T, 1] from 'X' [N, T, p].
     """
-    tokens = _compute_tokens(state["X"], vocab_size, concentration)
-    return TokenizedState(**state, tokens=tokens)
+    X = state["X"]  # [N, T, p]
+    p = X.shape[-1]
+    weight = randn(vocab_size, p)  # [K, p]
+    logits = F.linear(X, weight)  # [N, T, K]
+    prior = torch.ones(vocab_size) * concentration  # [K]
+    skew = dist.Dirichlet(prior).sample(logits.shape[:-1]).log()  # [N, T, K]
+    probs = F.softmax(logits + skew, dim=-1)  # [N, T, K]
+    flat = torch.multinomial(probs.view(-1, probs.size(-1)), 1)  # [N*T, 1]
+    token_ids = flat.view(*X.shape[:-1], 1)  # [N, T, 1]
+    return TokenizedState(**state, tokens=token_ids)
 
 
 def logistic_output(state: ObservedState, prevalence: float = 0.5) -> LabeledState:
@@ -309,21 +320,3 @@ def multi_event_times(
     data["event_time"] = event_time.clamp(max=horizon)
     data["indicator"] = (event_time <= horizon).to(data["event_time"].dtype)
     return data
-
-
-# ---------------------------------------------------------------------------
-# Private helpers
-# ---------------------------------------------------------------------------
-
-
-def _compute_tokens(X: Tensor, vocab_size: int, concentration: float) -> Tensor:
-    """Compute token IDs from design matrix via Dirichlet-skewed softmax."""
-    p = X.shape[-1]
-    weight = randn(vocab_size, p)  # [K, p]
-    logits = F.linear(X, weight)  # [N, T, K]
-    prior = torch.ones(vocab_size) * concentration  # [K]
-    dirichlet = dist.Dirichlet(prior)
-    skew = dirichlet.sample(logits.shape[:-1]).log()  # [N, T, K]
-    probs = F.softmax(logits + skew, dim=-1)  # [N, T, K]
-    flat = torch.multinomial(probs.view(-1, probs.size(-1)), 1)  # [N*T, 1]
-    return flat.view(*X.shape[:-1], 1)  # [N, T, 1]

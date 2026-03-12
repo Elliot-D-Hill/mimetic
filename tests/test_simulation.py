@@ -1,6 +1,3 @@
-from typing import Any, cast
-
-import pytest
 import torch
 
 from mimetic import AR1Covariance, Simulation
@@ -12,14 +9,14 @@ def test_simulation_logistic_with_tokens() -> None:
     num_timepoints = 6
     num_features = 4
     data = (
-        Simulation(num_samples)
-        .random_effects(stds=[1.0, 0.05])
-        .observations(
-            num_timepoints=num_timepoints,
-            num_features=num_features,
-            observed_std=0.25,
+        Simulation(
+            num_samples,
+            num_timepoints,
+            num_features,
+            0.25,
             covariance=AR1Covariance(correlation=0.8),
         )
+        .random_effects(stds=[1.0, 0.05])
         .logistic(prevalence=0.3)
         .tokenize(vocab_size=32)
         .data
@@ -37,14 +34,14 @@ def test_simulation_logistic_without_tokens() -> None:
     num_timepoints = 6
     num_features = 4
     data = (
-        Simulation(num_samples)
-        .random_effects(stds=[1.0, 0.05])
-        .observations(
-            num_timepoints=num_timepoints,
-            num_features=num_features,
-            observed_std=0.25,
+        Simulation(
+            num_samples,
+            num_timepoints,
+            num_features,
+            0.25,
             covariance=AR1Covariance(correlation=0.8),
         )
+        .random_effects(stds=[1.0, 0.05])
         .logistic(prevalence=0.3)
         .data
     )
@@ -58,14 +55,14 @@ def test_simulation_survival_smoke() -> None:
     num_timepoints = 6
     num_features = 4
     data = (
-        Simulation(num_samples)
-        .random_effects(stds=[1.0])
-        .observations(
-            num_timepoints=num_timepoints,
-            num_features=num_features,
-            observed_std=0.25,
+        Simulation(
+            num_samples,
+            num_timepoints,
+            num_features,
+            0.25,
             covariance=AR1Covariance(correlation=0.8),
         )
+        .random_effects(stds=[1.0])
         .event_time()
         .observation_time(shape=2.0, rate=1.0)
         .censor_time()
@@ -82,14 +79,14 @@ def test_simulation_custom_pipeline() -> None:
     num_timepoints = 6
     num_features = 4
     data = (
-        Simulation(num_samples)
-        .random_effects(stds=[1.0])
-        .observations(
-            num_timepoints=num_timepoints,
-            num_features=num_features,
-            observed_std=0.25,
+        Simulation(
+            num_samples,
+            num_timepoints,
+            num_features,
+            0.25,
             covariance=AR1Covariance(correlation=0.8),
         )
+        .random_effects(stds=[1.0])
         .logistic(prevalence=0.3)
         .tokenize(vocab_size=32)
         .data
@@ -105,14 +102,14 @@ def test_simulation_step_by_step_survival() -> None:
     num_timepoints = 6
     num_features = 4
     data = (
-        Simulation(num_samples)
-        .random_effects(stds=[1.0])
-        .observations(
-            num_timepoints=num_timepoints,
-            num_features=num_features,
-            observed_std=0.25,
+        Simulation(
+            num_samples,
+            num_timepoints,
+            num_features,
+            0.25,
             covariance=AR1Covariance(correlation=0.8),
         )
+        .random_effects(stds=[1.0])
         .event_time()
         .observation_time(shape=2.0, rate=1.0)
         .censor_time()
@@ -129,14 +126,14 @@ def test_simulation_step_by_step_mixture_cure() -> None:
     num_timepoints = 6
     num_features = 4
     data = (
-        Simulation(num_samples)
-        .random_effects(stds=[1.0])
-        .observations(
-            num_timepoints=num_timepoints,
-            num_features=num_features,
-            observed_std=0.25,
+        Simulation(
+            num_samples,
+            num_timepoints,
+            num_features,
+            0.25,
             covariance=AR1Covariance(correlation=0.8),
         )
+        .random_effects(stds=[1.0])
         .logistic(prevalence=0.3)
         .event_time()
         .mixture_cure()
@@ -156,11 +153,8 @@ def test_simulation_correlated_random_effects_shapes() -> None:
     num_timepoints = 6
     num_features = 4
     data = (
-        Simulation(num_samples)
+        Simulation(num_samples, num_timepoints, num_features, 0.25)
         .random_effects(stds=[1.0, 0.5], correlation=0.5)
-        .observations(
-            num_timepoints=num_timepoints, num_features=num_features, observed_std=0.25
-        )
         .data
     )
     assert data["gamma"].shape == (num_samples, 2, 1)
@@ -173,9 +167,8 @@ def test_simulation_positive_intercept_slope_correlation() -> None:
     torch.manual_seed(42)
     num_samples = 4096
     data = (
-        Simulation(num_samples)
+        Simulation(num_samples, 4, 1, 0.1)
         .random_effects(stds=[1.0, 1.0], correlation=0.8)
-        .observations(num_timepoints=4, num_features=1, observed_std=0.1)
         .data
     )
     intercepts = data["gamma"][:, 0, :].squeeze()  # [N]
@@ -189,9 +182,8 @@ def test_simulation_zero_correlation_independence() -> None:
     torch.manual_seed(42)
     num_samples = 4096
     data = (
-        Simulation(num_samples)
+        Simulation(num_samples, 4, 1, 0.1)
         .random_effects(stds=[1.0, 1.0], correlation=0.0)
-        .observations(num_timepoints=4, num_features=1, observed_std=0.1)
         .data
     )
     intercepts = data["gamma"][:, 0, :].squeeze()
@@ -203,31 +195,32 @@ def test_simulation_zero_correlation_independence() -> None:
 
 
 def test_time_tensor_exists_after_observations() -> None:
-    """observations() stores a regular time grid as data['time']."""
+    """Simulation() stores a regular time grid as data['time']."""
     num_samples = 16
     num_timepoints = 6
-    data = (
-        Simulation(num_samples)
-        .random_effects(stds=[1.0])
-        .observations(num_timepoints=num_timepoints, num_features=4, observed_std=0.25)
-        .data
-    )
+    data = Simulation(num_samples, num_timepoints, 4, 0.25).data
     assert data["time"].shape == (num_samples, num_timepoints, 1)
     expected = torch.arange(num_timepoints, dtype=torch.float32).view(1, -1, 1)
     assert torch.allclose(data["time"], expected.expand(num_samples, -1, -1))
 
 
 def test_simulation_data_accessible_at_any_stage() -> None:
-    """The .data property is available before any task method."""
-    sim = Simulation(8)
+    """The .data property is available immediately after construction."""
+    sim = Simulation(8, 4, 2, 0.25)
     assert sim.data.batch_size == torch.Size([8])
 
 
-def test_simulation_invalid_runtime_step_raises_clear_error() -> None:
-    """Calling a method from the wrong runtime stage fails fast."""
-    stage = cast(Any, Simulation(8).random_effects(stds=[1.0]))
-    with pytest.raises(AttributeError, match="logistic"):
-        stage.logistic(prevalence=0.3)
+def test_simulation_without_random_effects() -> None:
+    """Pipeline works without .random_effects(); gamma and U are absent."""
+    num_samples = 16
+    num_timepoints = 6
+    num_features = 4
+    data = Simulation(num_samples, num_timepoints, num_features, 0.25).data
+    assert data["y"].shape == (num_samples, num_timepoints, 1)
+    assert data["X"].shape == (num_samples, num_timepoints, num_features)
+    assert data["beta"].shape == (num_samples, num_features, 1)
+    assert "gamma" not in data.keys()
+    assert "U" not in data.keys()
 
 
 def test_general_q3_auto_U() -> None:
@@ -237,11 +230,8 @@ def test_general_q3_auto_U() -> None:
     num_features = 4
     q = 3
     data = (
-        Simulation(num_samples)
+        Simulation(num_samples, num_timepoints, num_features, 0.25)
         .random_effects(stds=[1.0, 0.3, 0.05])
-        .observations(
-            num_timepoints=num_timepoints, num_features=num_features, observed_std=0.25
-        )
         .data
     )
     assert data["gamma"].shape == (num_samples, q, 1)
@@ -251,16 +241,13 @@ def test_general_q3_auto_U() -> None:
 
 
 def test_observations_X_and_beta_shapes() -> None:
-    """y = Xβ + Uγ + ε always generates X and beta with correct shapes."""
+    """y = Xβ + ε always generates X and beta with correct shapes."""
     num_samples = 32
     num_timepoints = 8
     num_features = 3
     data = (
-        Simulation(num_samples)
+        Simulation(num_samples, num_timepoints, num_features, 0.25)
         .random_effects(stds=[1.0, 0.1])
-        .observations(
-            num_timepoints=num_timepoints, num_features=num_features, observed_std=0.25
-        )
         .data
     )
     assert data["y"].shape == (num_samples, num_timepoints, 1)

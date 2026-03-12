@@ -7,15 +7,15 @@ def test_task_pipeline_smoke() -> None:
     num_timepoints = 6
     num_features = 4
 
-    data = random_effects(num_samples, stds=[1.0, 0.05])
     covariance = residual_covariance(num_timepoints, AR1Covariance(correlation=0.8))
     data = observations(
-        data,
+        num_samples,
         num_timepoints=num_timepoints,
         num_features=num_features,
-        observed_std=0.25,
+        std=0.25,
         covariance=covariance,
     )
+    data = random_effects(data, stds=[1.0, 0.05])
     data = tokens(data, vocab_size=32)
     data = logistic_output(data, prevalence=0.3)
 
