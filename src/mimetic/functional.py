@@ -212,11 +212,11 @@ def censor_time(state: EventTimeState) -> CensoredState:
 def survival_indicators(state: CensoredState) -> SurvivalState:
     """Compute survival analysis indicators from event, censor, and observation times.
 
-    Produces 'indicator', 'observed_time', 'time_to_event'.
+    Produces 'indicator' [N, 1, 1], 'observed_time' [N, 1, 1], 'time_to_event' [N, T, 1].
     """
-    indicator = (state["event_time"] < state["censor_time"]).float()
-    observed_time = torch.minimum(state["censor_time"], state["event_time"])
-    time_to_event = observed_time - state["time"]
+    indicator = (state["event_time"] < state["censor_time"]).float()  # [N, 1, 1]
+    observed_time = torch.minimum(state["censor_time"], state["event_time"])  # [N, 1, 1]
+    time_to_event = observed_time - state["time"]  # [N, T, 1]
     return SurvivalState(
         **state,
         indicator=indicator,
@@ -322,11 +322,11 @@ def multi_event_times(
 def _compute_tokens(X: Tensor, vocab_size: int, concentration: float) -> Tensor:
     """Compute token IDs from design matrix via Dirichlet-skewed softmax."""
     p = X.shape[-1]
-    weight = randn(vocab_size, p)
-    logits = F.linear(X, weight)
-    prior = torch.ones(vocab_size) * concentration
+    weight = randn(vocab_size, p)  # [K, p]
+    logits = F.linear(X, weight)  # [N, T, K]
+    prior = torch.ones(vocab_size) * concentration  # [K]
     dirichlet = dist.Dirichlet(prior)
-    skew = dirichlet.sample(logits.shape[:-1]).log()
-    probs = F.softmax(logits + skew, dim=-1)
+    skew = dirichlet.sample(logits.shape[:-1]).log()  # [N, T, K]
+    probs = F.softmax(logits + skew, dim=-1)  # [N, T, K]
     flat = torch.multinomial(probs.view(-1, probs.size(-1)), 1)  # [N*T, 1]
     return flat.view(*X.shape[:-1], 1)  # [N, T, 1]

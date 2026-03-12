@@ -31,7 +31,7 @@ ResidualCovarianceSpec: TypeAlias = IsotropicCovariance | AR1Covariance | LKJCov
 
 def isotropic_covariance(size: int) -> Tensor:
     """Identity covariance Σ = I (no temporal correlation)."""
-    return torch.eye(size)
+    return torch.eye(size)  # [size, size]
 
 
 def ar1_covariance(correlation: float, num_timepoints: int) -> Tensor:
@@ -44,9 +44,9 @@ def ar1_covariance(correlation: float, num_timepoints: int) -> Tensor:
         correlation: Autocorrelation parameter in (0, 1).
         num_timepoints: Number of time points (size of covariance matrix).
     """
-    grid = torch.arange(num_timepoints, dtype=torch.float32)
-    diff = torch.abs(grid.unsqueeze(0) - grid.unsqueeze(1))
-    return correlation**diff
+    grid = torch.arange(num_timepoints, dtype=torch.float32)  # [T]
+    diff = torch.abs(grid.unsqueeze(0) - grid.unsqueeze(1))  # [T, T]
+    return correlation**diff  # [T, T]
 
 
 def lkj_covariance(concentration: float, size: int) -> Tensor:
@@ -56,8 +56,8 @@ def lkj_covariance(concentration: float, size: int) -> Tensor:
         concentration: Concentration parameter. concentration=1 gives uniform over correlation matrices.
         size: Dimension of the correlation matrix.
     """
-    L = dist.LKJCholesky(size, concentration=concentration).sample()
-    return L @ L.T
+    L = dist.LKJCholesky(size, concentration=concentration).sample()  # [size, size]
+    return L @ L.T  # [size, size]
 
 
 # TODO see if there is  a correlation == 0.0 base case for equation
@@ -74,12 +74,12 @@ def make_random_effects_covariance(
     q = len(stds)
     S = torch.diag(torch.tensor(stds, dtype=torch.float32))  # [q, q]
     if isinstance(correlation, Tensor):
-        R = correlation
+        R = correlation  # [q, q]
     elif correlation == 0.0:
-        R = torch.eye(q)
+        R = torch.eye(q)  # [q, q]
     else:
-        R = torch.eye(q) * (1 - correlation) + torch.full((q, q), correlation)
-    return S @ R @ S
+        R = torch.eye(q) * (1 - correlation) + torch.full((q, q), correlation)  # [q, q]
+    return S @ R @ S  # [q, q]
 
 
 def make_residual_covariance(
