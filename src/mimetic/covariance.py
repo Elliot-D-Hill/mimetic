@@ -1,5 +1,5 @@
-from dataclasses import dataclass
 from collections.abc import Sequence
+from dataclasses import dataclass
 from typing import TypeAlias
 
 import torch
@@ -60,6 +60,7 @@ def lkj_covariance(concentration: float, size: int) -> Tensor:
     return L @ L.T
 
 
+# TODO see if there is  a correlation == 0.0 base case for equation
 def make_random_effects_covariance(
     stds: Sequence[float], correlation: Tensor | float = 0.0
 ) -> Tensor:

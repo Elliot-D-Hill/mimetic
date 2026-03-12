@@ -33,72 +33,106 @@ uv sync --dev
 with type-safe state transitions — autocomplete shows only the methods valid at
 each step.
 
+### Binary classification
+
 ```python
-import torch
-from mimetic import AR1Covariance, Simulation
+from mimetic import Simulation
 
-weight = torch.randn(1, 8) * 0.5
-
-# High-level: one chained call
 data = (
     Simulation(num_samples=1024)
-    .random_effects(hidden_dim=8, stds=[1.0, 0.1])
-    .observations(
-        num_timepoints=10,
-        observed_std=0.25,
-        covariance=AR1Covariance(correlation=0.8),
-    )
-    .mixture_cure(weight=weight, prevalence=0.3, shape=2.0, rate=1.0)
-    .tokenize(vocab_size=256)
+    .random_effects(stds=[1.0, 0.1])
+    .observations(num_timepoints=10, num_features=8, observed_std=0.25)
+    .logistic(prevalence=0.3)
     .data
 )
 print(data)
 ```
 
-The same simulated dataset built incrementally, calling each step:
+```text
+TensorDict(
+    fields={
+        U: Tensor(shape=torch.Size([1024, 10, 2]), device=cpu, dtype=torch.float32, is_shared=False),
+        X: Tensor(shape=torch.Size([1024, 10, 8]), device=cpu, dtype=torch.float32, is_shared=False),
+        eta: Tensor(shape=torch.Size([1024, 10, 1]), device=cpu, dtype=torch.float32, is_shared=False),
+        gamma: Tensor(shape=torch.Size([1024, 2, 1]), device=cpu, dtype=torch.float32, is_shared=False),
+        label: Tensor(shape=torch.Size([1024, 10, 1]), device=cpu, dtype=torch.float32, is_shared=False),
+        probability: Tensor(shape=torch.Size([1024, 10, 1]), device=cpu, dtype=torch.float32, is_shared=False),
+        time: Tensor(shape=torch.Size([1024, 10, 1]), device=cpu, dtype=torch.float32, is_shared=False),
+        y: Tensor(shape=torch.Size([1024, 10, 1]), device=cpu, dtype=torch.float32, is_shared=False)},
+    batch_size=torch.Size([1024]),
+    device=None,
+    is_shared=False)
+```
+
+### Mixture-cure survival with tokenized sequences
 
 ```python
+from mimetic import AR1Covariance, Simulation
+
 data = (
     Simulation(num_samples=1024)
-    .random_effects(hidden_dim=8, stds=[1.0, 0.1])
+    .random_effects(stds=[1.0, 0.1])
     .observations(
         num_timepoints=10,
+        num_features=8,
         observed_std=0.25,
         covariance=AR1Covariance(correlation=0.8),
     )
-    .linear_predictor(weight=weight, prevalence=0.3)
-    .logistic_output()
+    .logistic(prevalence=0.3)
+    .tokenize(vocab_size=256)
     .event_time()
-    .mixture_cure_censoring()
+    .mixture_cure()
     .observation_time(shape=2.0, rate=1.0)
     .censor_time()
     .survival_indicators()
-    .tokenize(vocab_size=256)
     .data
 )
+print(data)
 ```
 
-Typical outputs include:
+```text
+TensorDict(
+    fields={
+        U: Tensor(shape=torch.Size([1024, 10, 2]), device=cpu, dtype=torch.float32, is_shared=False),
+        X: Tensor(shape=torch.Size([1024, 10, 8]), device=cpu, dtype=torch.float32, is_shared=False),
+        censor_time: Tensor(shape=torch.Size([1024, 1, 1]), device=cpu, dtype=torch.float32, is_shared=False),
+        eta: Tensor(shape=torch.Size([1024, 10, 1]), device=cpu, dtype=torch.float32, is_shared=False),
+        event_time: Tensor(shape=torch.Size([1024, 1, 1]), device=cpu, dtype=torch.float32, is_shared=False),
+        gamma: Tensor(shape=torch.Size([1024, 2, 1]), device=cpu, dtype=torch.float32, is_shared=False),
+        indicator: Tensor(shape=torch.Size([1024, 1, 1]), device=cpu, dtype=torch.float32, is_shared=False),
+        label: Tensor(shape=torch.Size([1024, 10, 1]), device=cpu, dtype=torch.float32, is_shared=False),
+        observed_time: Tensor(shape=torch.Size([1024, 1, 1]), device=cpu, dtype=torch.float32, is_shared=False),
+        probability: Tensor(shape=torch.Size([1024, 10, 1]), device=cpu, dtype=torch.float32, is_shared=False),
+        time: Tensor(shape=torch.Size([1024, 10, 1]), device=cpu, dtype=torch.float32, is_shared=False),
+        time_to_event: Tensor(shape=torch.Size([1024, 10, 1]), device=cpu, dtype=torch.float32, is_shared=False),
+        tokens: Tensor(shape=torch.Size([1024, 10, 1]), device=cpu, dtype=torch.int64, is_shared=False),
+        y: Tensor(shape=torch.Size([1024, 10, 1]), device=cpu, dtype=torch.float32, is_shared=False)},
+    batch_size=torch.Size([1024]),
+    device=None,
+    is_shared=False)
+```
 
-- `id`, `group`
-- `gamma` (random effects), `y` (observed trajectories), `U` (design matrix)
-- `tokens`
-- `eta` (linear predictor), `coefficients`, `intercept`
+### Typical outputs
+
+- `gamma` (random effects), `y` (scalar GLMM response), `X` (design matrix), `U` (random-effects design matrix)
+- `tokens` (when `.tokenize()` is called, derived from `X`)
+- `eta` (linear predictor, η = Xβ + Uγ)
 - `probability` and `label` for classification tasks
 - `time`, `event_time`, `censor_time`, `indicator`, `observed_time`,
-  `time_to_event` for survival-style tasks
+  `time_to_event` for survival tasks
 
-## Supported Tasks
+## Pipeline stages
 
-High-level macros on the observations stage compose the full pipeline for common tasks:
+After `.observations()`, the pipeline branches by task:
 
-- `.logistic()` — binary classification
-- `.multiclass()` — multi-class classification
-- `.ordinal()` — ordinal regression
-- `.survival()` — right-censored time-to-event
-- `.mixture_cure()` — mixture cure survival model
-- `.competing_risk()` — competing risks with discrete time
-- `.multi_event()` — per-event TTE with sliding horizon
+| Stage | Methods | Description |
+| ------- | --------- | ------------- |
+| Observed | `.logistic()`, `.multiclass()`, `.ordinal()`, `.event_time()`, `.tokenize()`, `.observation_time()` | Trajectories ready for labeling or tokenization |
+| Tokenized | `.logistic()`, `.multiclass()`, `.ordinal()`, `.event_time()` | Tokenized trajectories ready for labeling |
+| Labeled | `.event_time()`, `.tokenize()` | Classification labels assigned |
+| EventTime | `.observation_time()`, `.censor_time()` | Survival event times generated |
+| LabeledEventTime | `.mixture_cure()`, `.observation_time()`, `.censor_time()` | Survival from labeled path (enables cure fraction) |
+| Censored | `.survival_indicators()` | Administrative censoring applied |
 
 ## Notes on Structure
 
