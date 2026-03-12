@@ -2,8 +2,8 @@ from .covariance import (
     AR1Covariance,
     IsotropicCovariance,
     LKJCovariance,
-    make_random_effects_covariance,
-    make_residual_covariance,
+    random_effects_covariance,
+    residual_covariance,
 )
 from .functional import (
     censor_time,
@@ -49,8 +49,8 @@ __all__ = [
     "AR1Covariance",
     "IsotropicCovariance",
     "LKJCovariance",
-    "make_random_effects_covariance",
-    "make_residual_covariance",
+    "random_effects_covariance",
+    "residual_covariance",
     # States
     "CensoredState",
     "EffectsState",

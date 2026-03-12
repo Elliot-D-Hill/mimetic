@@ -60,8 +60,7 @@ def lkj_covariance(concentration: float, size: int) -> Tensor:
     return L @ L.T  # [size, size]
 
 
-# TODO see if there is  a correlation == 0.0 base case for equation
-def make_random_effects_covariance(
+def random_effects_covariance(
     stds: Sequence[float], correlation: Tensor | float = 0.0
 ) -> Tensor:
     """Build the random-effects covariance Q = S R S (Fahrmeir et al., Eq. 7.11).
@@ -75,14 +74,12 @@ def make_random_effects_covariance(
     S = torch.diag(torch.tensor(stds, dtype=torch.float32))  # [q, q]
     if isinstance(correlation, Tensor):
         R = correlation  # [q, q]
-    elif correlation == 0.0:
-        R = torch.eye(q)  # [q, q]
     else:
         R = torch.eye(q) * (1 - correlation) + torch.full((q, q), correlation)  # [q, q]
     return S @ R @ S  # [q, q]
 
 
-def make_residual_covariance(
+def residual_covariance(
     num_timepoints: int, covariance: ResidualCovarianceSpec | None = None
 ) -> Tensor:
     """Build the within-subject residual covariance Σ (Fahrmeir et al., Eq. 7.21).

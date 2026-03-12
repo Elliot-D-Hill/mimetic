@@ -7,7 +7,7 @@ from typing import Any
 from tensordict import TensorDict
 from torch import Tensor
 
-from .covariance import ResidualCovarianceSpec, make_residual_covariance
+from .covariance import ResidualCovarianceSpec, residual_covariance
 from .functional import (
     censor_time,
     event_time,
@@ -86,7 +86,7 @@ class EffectsStep:
         covariance_matrix = (
             covariance
             if isinstance(covariance, Tensor)
-            else make_residual_covariance(num_timepoints, covariance)
+            else residual_covariance(num_timepoints, covariance)
         )
         return ObservedStep(
             observations(

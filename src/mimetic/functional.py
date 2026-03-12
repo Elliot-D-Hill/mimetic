@@ -6,7 +6,7 @@ import torch.nn.functional as F
 from tensordict import TensorDict
 from torch import Tensor, arange, randn
 
-from .covariance import make_random_effects_covariance
+from .covariance import random_effects_covariance
 from .states import (
     CensoredState,
     EffectsState,
@@ -34,15 +34,10 @@ def random_effects(
             Tensor gives a user-provided [q, q] correlation matrix.
     """
     q = len(stds)
-    if isinstance(correlation, float) and correlation == 0.0:
-        gamma = torch.cat(
-            [randn(num_samples, 1, 1) * std for std in stds], dim=1
-        )  # [N, q, 1]
-    else:
-        Q = make_random_effects_covariance(stds, correlation)
-        mvn = dist.MultivariateNormal(torch.zeros(q), Q)
-        samples = mvn.sample((num_samples,))  # [N, q]
-        gamma = samples.unsqueeze(-1)  # [N, q, 1]
+    Q = random_effects_covariance(stds, correlation)  # [q, q]
+    mvn = dist.MultivariateNormal(torch.zeros(q), Q)
+    samples = mvn.sample((num_samples,))  # [N, q]
+    gamma = samples.unsqueeze(-1)  # [N, q, 1]
     return EffectsState(gamma=gamma)
 
 
@@ -66,7 +61,7 @@ def observations(
     gamma = state["gamma"]  # [N, q, 1]
     num_samples, q, _ = gamma.shape
     t = arange(num_timepoints, dtype=torch.float32)  # [T]
-    U = torch.stack([t**k for k in range(q)], dim=1)  # [T, q]
+    U = torch.vander(t, N=q, increasing=True)  # [T, q]
     U = U.unsqueeze(0).expand(num_samples, -1, -1)  # [N, T, q]
     random_effects = torch.bmm(U, gamma)  # [N, T, 1]
     X = randn(num_samples, num_timepoints, num_features)  # [N, T, p]
@@ -78,8 +73,8 @@ def observations(
     noise = mvn.sample((num_samples, 1))  # [N, 1, T]
     noise = noise.permute(0, 2, 1)  # [N, T, 1]
     y = eta + noise  # [N, T, 1]
-    time_vals = arange(num_timepoints, dtype=torch.float32).view(1, -1, 1)
-    time = time_vals.expand(num_samples, -1, -1)  # [N, T, 1]
+    time_values = arange(num_timepoints, dtype=torch.float32).view(1, -1, 1)
+    time = time_values.expand(num_samples, -1, -1)  # [N, T, 1]
     return ObservedState(**state, y=y, U=U, time=time, eta=eta, X=X, beta=beta)
 
 
@@ -90,8 +85,8 @@ def tokens(
 
     Produces 'tokens' [N, T, 1] from 'X' [N, T, p].
     """
-    tok = _compute_tokens(state["X"], vocab_size, concentration)
-    return TokenizedState(**state, tokens=tok)
+    tokens = _compute_tokens(state["X"], vocab_size, concentration)
+    return TokenizedState(**state, tokens=tokens)
 
 
 def logistic_output(state: ObservedState, prevalence: float = 0.5) -> LabeledState:
@@ -177,10 +172,10 @@ def mixture_cure_censoring(state: EventTimeState) -> EventTimeState:
     label = state.get("label")
     assert label is not None
     cured = (label == 0).all(dim=1, keepdim=True)  # [N, 1, 1]
-    et = state["event_time"].clone()
-    et[cured.expand_as(et)] = torch.inf
+    event_time = state["event_time"].clone()  # [N, 1, 1]
+    event_time[cured.expand_as(event_time)] = torch.inf
     result = state.copy()
-    result["event_time"] = et
+    result["event_time"] = event_time
     return result
 
 
@@ -215,7 +210,9 @@ def survival_indicators(state: CensoredState) -> SurvivalState:
     Produces 'indicator' [N, 1, 1], 'observed_time' [N, 1, 1], 'time_to_event' [N, T, 1].
     """
     indicator = (state["event_time"] < state["censor_time"]).float()  # [N, 1, 1]
-    observed_time = torch.minimum(state["censor_time"], state["event_time"])  # [N, 1, 1]
+    observed_time = torch.minimum(
+        state["censor_time"], state["event_time"]
+    )  # [N, 1, 1]
     time_to_event = observed_time - state["time"]  # [N, T, 1]
     return SurvivalState(
         **state,
@@ -247,10 +244,10 @@ def competing_risks_events(data: TensorDict, vocab_size: int) -> TensorDict:
     beta = F.softplus(log_beta) + eps
     weibull = dist.Weibull(alpha, beta)
     failure_times = weibull.rsample()  # [N, T, K]
-    tte, tok = failure_times.min(dim=-1, keepdim=True)  # [N, T, 1]
-    data["tokens"] = tok
-    data["event_time"] = tte
-    data["time"] = tte.cumsum(dim=1)
+    event_time, tokens = failure_times.min(dim=-1, keepdim=True)  # [N, T, 1]
+    data["tokens"] = tokens
+    data["event_time"] = event_time
+    data["time"] = event_time.cumsum(dim=1)
     data["failure_times"] = failure_times
     return data
 
@@ -261,17 +258,17 @@ def discrete_event_time(data: TensorDict, boundaries: Tensor) -> TensorDict:
     Reads: 'event_time', 'indicator'.
     Writes: 'discrete_event_time'.
     """
-    et: Tensor = data["event_time"]
-    ind: Tensor = data["indicator"]
-    interval_start = boundaries[:-1].view(*([1] * et.dim()), -1)
-    interval_end = boundaries[1:].view(*([1] * et.dim()), -1)
+    event_time: Tensor = data["event_time"]
+    indicator: Tensor = data["indicator"]
+    interval_start = boundaries[:-1].view(*([1] * event_time.dim()), -1)
+    interval_end = boundaries[1:].view(*([1] * event_time.dim()), -1)
     interval_width = interval_end - interval_start
-    et = et.unsqueeze(-1)
-    exposure: Tensor = ((et - interval_start) / interval_width).clamp(0, 1)
-    in_interval: Tensor = (et > interval_start) & (et <= interval_end)
-    ind = ind.unsqueeze(-1).to(exposure.dtype)
-    event_duration: Tensor = ind * (exposure * in_interval)
-    censored_duration: Tensor = (1.0 - ind) * exposure
+    event_time = event_time.unsqueeze(-1)
+    exposure: Tensor = ((event_time - interval_start) / interval_width).clamp(0, 1)
+    in_interval: Tensor = (event_time > interval_start) & (event_time <= interval_end)
+    indicator = indicator.unsqueeze(-1).to(exposure.dtype)
+    event_duration: Tensor = indicator * (exposure * in_interval)
+    censored_duration: Tensor = (1.0 - indicator) * exposure
     data["discrete_event_time"] = event_duration + censored_duration
     return data
 
@@ -283,8 +280,8 @@ def competing_risk_indicators(data: TensorDict, vocab_size: int) -> TensorDict:
     Writes: 'indicator' [N, T, K], 'event_time' [N, T, K].
     """
     tensor_dtype = data["event_time"].dtype
-    tok: Tensor = data["tokens"].squeeze(-1)
-    indicator = F.one_hot(tok, num_classes=vocab_size)
+    tokens: Tensor = data["tokens"].squeeze(-1)
+    indicator = F.one_hot(tokens, num_classes=vocab_size)
     data["indicator"] = indicator.to(tensor_dtype)
     data["event_time"] = data["event_time"].expand(-1, -1, vocab_size)
     return data
@@ -299,18 +296,18 @@ def multi_event_times(
     Writes: 'event_time' [N, T, K], 'indicator' [N, T, K].
     """
     time: Tensor = data["time"]
-    tok: Tensor = data["tokens"].squeeze(-1)
-    event_mask = F.one_hot(tok, num_classes=vocab_size).to(torch.bool)
+    tokens: Tensor = data["tokens"].squeeze(-1)
+    event_mask = F.one_hot(tokens, num_classes=vocab_size).to(torch.bool)
     event_times: Tensor = time.expand(-1, -1, vocab_size)
     event_times = event_times.masked_fill(~event_mask, torch.inf)
     event_times_reversed = torch.flip(event_times, dims=[1])
     suffix_min = torch.flip(torch.cummin(event_times_reversed, dim=1).values, dims=[1])
     next_time = F.pad(suffix_min[:, 1:], (0, 0, 0, 1), value=torch.inf)
-    et: Tensor = next_time - time
+    event_time: Tensor = next_time - time
     if horizon is None:
-        horizon = et[et.isfinite()].max()
-    data["event_time"] = et.clamp(max=horizon)
-    data["indicator"] = (et <= horizon).to(data["event_time"].dtype)
+        horizon = event_time[event_time.isfinite()].max()
+    data["event_time"] = event_time.clamp(max=horizon)
+    data["indicator"] = (event_time <= horizon).to(data["event_time"].dtype)
     return data
 
 

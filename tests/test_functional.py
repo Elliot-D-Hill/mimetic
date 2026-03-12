@@ -1,4 +1,4 @@
-from mimetic.covariance import AR1Covariance, make_residual_covariance
+from mimetic.covariance import AR1Covariance, residual_covariance
 from mimetic.functional import logistic_output, observations, random_effects, tokens
 
 
@@ -8,9 +8,7 @@ def test_task_pipeline_smoke() -> None:
     num_features = 4
 
     data = random_effects(num_samples, stds=[1.0, 0.05])
-    covariance = make_residual_covariance(
-        num_timepoints, AR1Covariance(correlation=0.8)
-    )
+    covariance = residual_covariance(num_timepoints, AR1Covariance(correlation=0.8))
     data = observations(
         data,
         num_timepoints=num_timepoints,

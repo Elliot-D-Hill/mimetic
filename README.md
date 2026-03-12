@@ -53,6 +53,7 @@ TensorDict(
     fields={
         U: Tensor(shape=torch.Size([1024, 10, 2]), device=cpu, dtype=torch.float32, is_shared=False),
         X: Tensor(shape=torch.Size([1024, 10, 8]), device=cpu, dtype=torch.float32, is_shared=False),
+        beta: Tensor(shape=torch.Size([1024, 8, 1]), device=cpu, dtype=torch.float32, is_shared=False),
         eta: Tensor(shape=torch.Size([1024, 10, 1]), device=cpu, dtype=torch.float32, is_shared=False),
         gamma: Tensor(shape=torch.Size([1024, 2, 1]), device=cpu, dtype=torch.float32, is_shared=False),
         label: Tensor(shape=torch.Size([1024, 10, 1]), device=cpu, dtype=torch.float32, is_shared=False),
@@ -95,6 +96,7 @@ TensorDict(
     fields={
         U: Tensor(shape=torch.Size([1024, 10, 2]), device=cpu, dtype=torch.float32, is_shared=False),
         X: Tensor(shape=torch.Size([1024, 10, 8]), device=cpu, dtype=torch.float32, is_shared=False),
+        beta: Tensor(shape=torch.Size([1024, 8, 1]), device=cpu, dtype=torch.float32, is_shared=False),
         censor_time: Tensor(shape=torch.Size([1024, 1, 1]), device=cpu, dtype=torch.float32, is_shared=False),
         eta: Tensor(shape=torch.Size([1024, 10, 1]), device=cpu, dtype=torch.float32, is_shared=False),
         event_time: Tensor(shape=torch.Size([1024, 1, 1]), device=cpu, dtype=torch.float32, is_shared=False),
@@ -114,7 +116,7 @@ TensorDict(
 
 ### Typical outputs
 
-- `gamma` (random effects), `y` (scalar GLMM response), `X` (design matrix), `U` (random-effects design matrix)
+- `gamma` (random effects), `y` (scalar GLMM response), `X` (design matrix), `beta` (fixed-effects coefficients), `U` (random-effects design matrix)
 - `tokens` (when `.tokenize()` is called, derived from `X`)
 - `eta` (linear predictor, η = Xβ + Uγ)
 - `probability` and `label` for classification tasks
@@ -138,7 +140,7 @@ After `.observations()`, the pipeline branches by task:
 
 - `src/mimetic/simulation.py` — fluent `Simulation` interface
 - `src/mimetic/functional.py` — reusable building-block functions
-- `src/mimetic/covariance.py` — temporal covariance helpers
+- `src/mimetic/covariance.py` — covariance construction (random-effects and residual)
 
 ## Development
 
