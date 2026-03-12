@@ -1,4 +1,4 @@
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 
 import torch
 import torch.distributions as dist
@@ -7,18 +7,7 @@ from tensordict import TensorDict
 from torch import Tensor, arange, randn
 
 from .covariance import random_effects_covariance
-from .states import (
-    CensoredState,
-    EventTimeState,
-    LabeledState,
-    ObservedState,
-    SurvivalState,
-    TokenizedState,
-)
-
-# ---------------------------------------------------------------------------
-# Main pipeline
-# ---------------------------------------------------------------------------
+from .states import LabeledState, ObservedState, TokenizedState
 
 
 def observations(
@@ -27,6 +16,8 @@ def observations(
     num_features: int,
     std: float,
     covariance: Tensor,
+    X: Tensor | None = None,
+    beta: Tensor | None = None,
 ) -> ObservedState:
     """Generate GLM observations y_i = X_i*beta + eps_i (Fahrmeir Box 7.1).
 
@@ -38,9 +29,13 @@ def observations(
         num_features: Number of design matrix features p.
         std: Residual standard deviation sigma.
         covariance: Residual correlation matrix Sigma [T, T].
+        X: Optional design matrix [N, T, p]; random if omitted.
+        beta: Optional coefficients [N, p, 1]; random if omitted.
     """
-    X = randn(num_samples, num_timepoints, num_features)  # [N, T, p]
-    beta = randn(num_samples, num_features, 1)  # [N, p, 1]
+    if X is None:
+        X = randn(num_samples, num_timepoints, num_features)  # [N, T, p]
+    if beta is None:
+        beta = randn(num_samples, num_features, 1)  # [N, p, 1]
     eta = torch.bmm(X, beta)  # [N, T, 1]
     scaled_cov = covariance * std**2
     mvn = dist.MultivariateNormal(torch.zeros(num_timepoints), scaled_cov)
@@ -49,11 +44,15 @@ def observations(
     y = eta + noise  # [N, T, 1]
     time_values = arange(num_timepoints, dtype=torch.float32).view(1, -1, 1)
     time = time_values.expand(num_samples, -1, -1)  # [N, T, 1]
-    return ObservedState(y=y, time=time, eta=eta, X=X, beta=beta)
+    return ObservedState(y=y, time=time, eta=eta, noise=noise, X=X, beta=beta)
 
 
 def random_effects(
-    state: ObservedState, stds: Sequence[float], correlation: Tensor | float = 0.0
+    state: ObservedState,
+    stds: Sequence[float],
+    correlation: Tensor | float = 0.0,
+    U: Tensor | None = None,
+    gamma: Tensor | None = None,
 ) -> ObservedState:
     """Add random effects Uγ to an existing ObservedState (Fahrmeir et al., Eq. 7.11).
 
@@ -63,22 +62,79 @@ def random_effects(
         stds: Standard deviations for each random effect; len determines q.
         correlation: Off-diagonal correlation. Float gives compound symmetry,
             Tensor gives a user-provided [q, q] correlation matrix.
+        U: Optional design matrix [N, T, q]; Vandermonde basis if omitted.
+        gamma: Optional coefficients [N, q, 1]; sampled from MVN(0, Q) if omitted.
     """
     q = len(stds)
     num_samples, num_timepoints, _ = state["y"].shape
-    Q = random_effects_covariance(stds, correlation)  # [q, q]
-    mvn = dist.MultivariateNormal(torch.zeros(q), Q)
-    gamma = mvn.sample((num_samples,)).unsqueeze(-1)  # [N, q, 1]
-    t = arange(num_timepoints, dtype=torch.float32)  # [T]
-    U = torch.vander(t, N=q, increasing=True)  # [T, q]
-    U = U.unsqueeze(0).expand(num_samples, -1, -1)  # [N, T, q]
-    re = torch.bmm(U, gamma)  # [N, T, 1]
+    if gamma is None:
+        Q = random_effects_covariance(stds, correlation)  # [q, q]
+        mvn = dist.MultivariateNormal(torch.zeros(q), Q)
+        gamma = mvn.sample((num_samples,)).unsqueeze(-1)  # [N, q, 1]
+    if U is None:
+        t = arange(num_timepoints, dtype=torch.float32)  # [T]
+        U = torch.vander(t, N=q, increasing=True)  # [T, q]
+        U = U.unsqueeze(0).expand(num_samples, -1, -1)  # [N, T, q]
+    random_effect = torch.bmm(U, gamma)  # [N, T, 1]
     result = state.copy()
-    result["eta"] = state["eta"] + re  # [N, T, 1]
-    result["y"] = state["y"] + re  # [N, T, 1]
+    result["eta"] = state["eta"] + random_effect  # [N, T, 1]
+    result["y"] = result["eta"] + state["noise"]  # [N, T, 1]
     result["gamma"] = gamma
     result["U"] = U
     return result
+
+
+def activation[T: ObservedState](state: T, fn: Callable[[Tensor], Tensor]) -> T:
+    """Apply a nonlinear activation to the linear predictor.
+
+    Transforms eta via fn, then recomputes y = fn(eta) + noise.
+
+    Args:
+        fn: Elementwise activation (e.g. torch.relu, torch.tanh).
+    """
+    result = state.copy()
+    result["eta"] = fn(state["eta"])
+    result["y"] = result["eta"] + state["noise"]
+    return result
+
+
+def linear[T: ObservedState](
+    state: T, out_features: int, weight: Tensor | None = None
+) -> T:
+    """Apply a random linear projection to the linear predictor.
+
+    Transforms eta [N, T, in] → eta [N, T, out] via eta @ W.
+
+    Args:
+        out_features: Output dimension.
+        weight: Optional [in, out] weight matrix; random if omitted.
+    """
+    result = state.copy()
+    eta = state["eta"]  # [N, T, in]
+    if weight is None:
+        weight = randn(eta.shape[-1], out_features)  # [in, out]
+    result["eta"] = eta @ weight  # [N, T, out]
+    result["y"] = result["eta"] + state["noise"]  # broadcasts [N, T, 1]
+    return result
+
+
+def mlp[T: ObservedState](
+    state: T,
+    hidden_features: int,
+    fn: Callable[[Tensor], Tensor] = F.relu,
+    out_features: int | None = None,
+) -> T:
+    """Apply a single hidden-layer MLP: linear → activation → linear.
+
+    Args:
+        hidden_features: Hidden layer dimension.
+        fn: Activation function between layers.
+        out_features: Output dimension; defaults to input dimension.
+    """
+    if out_features is None:
+        out_features = state["eta"].shape[-1]
+    state = activation(linear(state, hidden_features), fn)
+    return linear(state, out_features)
 
 
 def tokens(
@@ -100,7 +156,7 @@ def tokens(
     return TokenizedState(**state, tokens=token_ids)
 
 
-def logistic_output(state: ObservedState, prevalence: float = 0.5) -> LabeledState:
+def logistic(state: ObservedState, prevalence: float = 0.5) -> LabeledState:
     """Compute logistic probability and binary label from linear predictor.
 
     Reads 'eta' [N, T, 1]. Produces 'probability' [N, T, 1], 'label' [N, T, 1].
@@ -114,7 +170,7 @@ def logistic_output(state: ObservedState, prevalence: float = 0.5) -> LabeledSta
     return LabeledState(**state, probability=probability, label=label)
 
 
-def multiclass_output(state: ObservedState) -> LabeledState:
+def multiclass(state: ObservedState) -> LabeledState:
     """Compute multiclass probability and class label from linear predictor.
 
     Reads 'eta' [N, T, 1]. Produces 'probability' [N, T, K], 'label' [N, T, 1].
@@ -124,7 +180,7 @@ def multiclass_output(state: ObservedState) -> LabeledState:
     return LabeledState(**state, probability=probability, label=label)
 
 
-def ordinal_output(
+def ordinal(
     state: ObservedState, num_classes: int, start: float = -2.0, end: float = 2.0
 ) -> LabeledState:
     """Compute ordinal probability and label via cumulative logit model.
@@ -157,85 +213,6 @@ def replace_observation_time(
     result = state.copy()
     result["time"] = time
     return result
-
-
-# ---------------------------------------------------------------------------
-# Survival pipeline
-# ---------------------------------------------------------------------------
-
-
-def event_time(state: ObservedState) -> EventTimeState:
-    """Sample event time from exponential distribution.
-
-    Aggregates eta to subject level: mean over timepoints -> single event time.
-    """
-    subject_eta = state["eta"].mean(dim=1, keepdim=True)  # [N, 1, 1]
-    rate = torch.exp(subject_eta)
-    sampled = dist.Exponential(rate=rate).sample()  # [N, 1, 1]
-    return EventTimeState(**state, event_time=sampled)
-
-
-def mixture_cure_censoring(state: EventTimeState) -> EventTimeState:
-    """Set event_time to infinity for cured individuals (label == 0 at all timepoints).
-
-    Reads 'label' [N, T, 1], 'event_time' [N, 1, 1]. Modifies 'event_time'.
-    """
-    label = state.get("label")
-    assert label is not None
-    cured = (label == 0).all(dim=1, keepdim=True)  # [N, 1, 1]
-    event_time = state["event_time"].clone()  # [N, 1, 1]
-    event_time[cured.expand_as(event_time)] = torch.inf
-    result = state.copy()
-    result["event_time"] = event_time
-    return result
-
-
-def replace_survival_observation_time(
-    state: EventTimeState, shape: float, rate: float
-) -> EventTimeState:
-    """Replace observation times with Gamma-distributed intervals for survival data."""
-    num_samples, num_timepoints = state["y"].shape[0], state["y"].shape[1]
-    gamma_dist = dist.Gamma(shape, rate)
-    time_intervals = gamma_dist.sample((num_samples, num_timepoints, 1))  # [N, T, 1]
-    time = time_intervals.cumsum(dim=1)  # [N, T, 1]
-    result = state.copy()
-    result["time"] = time
-    return result
-
-
-def censor_time(state: EventTimeState) -> CensoredState:
-    """Sample uniform censor time between min and max observation time.
-
-    Reads 'time' [N, T, 1]. Produces 'censor_time' [N, 1, 1].
-    """
-    time = state["time"]
-    min_time = torch.amin(time, dim=1, keepdim=True)
-    max_time = torch.amax(time, dim=1, keepdim=True)
-    ct = dist.Uniform(min_time, max_time).sample()
-    return CensoredState(**state, censor_time=ct)
-
-
-def survival_indicators(state: CensoredState) -> SurvivalState:
-    """Compute survival analysis indicators from event, censor, and observation times.
-
-    Produces 'indicator' [N, 1, 1], 'observed_time' [N, 1, 1], 'time_to_event' [N, T, 1].
-    """
-    indicator = (state["event_time"] < state["censor_time"]).float()  # [N, 1, 1]
-    observed_time = torch.minimum(
-        state["censor_time"], state["event_time"]
-    )  # [N, 1, 1]
-    time_to_event = observed_time - state["time"]  # [N, T, 1]
-    return SurvivalState(
-        **state,
-        indicator=indicator,
-        observed_time=observed_time,
-        time_to_event=time_to_event,
-    )
-
-
-# ---------------------------------------------------------------------------
-# Competing risks (TensorDict utilities — complex branching, less common)
-# ---------------------------------------------------------------------------
 
 
 def competing_risks_events(data: TensorDict, vocab_size: int) -> TensorDict:

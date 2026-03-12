@@ -29,9 +29,9 @@ uv sync --dev
 
 ## Quick Start
 
-`Simulation` provides a fluent interface that guides you through the pipeline
-with type-safe state transitions — autocomplete shows only the methods valid at
-each step.
+`Simulation` provides a fluent interface for building synthetic datasets.
+Construction generates fixed-effects observations (y = Xβ + ε); call
+`.random_effects()` to upgrade to a mixed model (y = Xβ + Uγ + ε).
 
 ### Binary classification
 
@@ -39,9 +39,8 @@ each step.
 from mimetic import Simulation
 
 data = (
-    Simulation(num_samples=1024)
+    Simulation(num_samples=1024, num_timepoints=10, num_features=8, std=0.25)
     .random_effects(stds=[1.0, 0.1])
-    .observations(num_timepoints=10, num_features=8, observed_std=0.25)
     .logistic(prevalence=0.3)
     .data
 )
@@ -51,18 +50,16 @@ print(data)
 ```text
 TensorDict(
     fields={
-        U: Tensor(shape=torch.Size([1024, 10, 2]), device=cpu, dtype=torch.float32, is_shared=False),
-        X: Tensor(shape=torch.Size([1024, 10, 8]), device=cpu, dtype=torch.float32, is_shared=False),
-        beta: Tensor(shape=torch.Size([1024, 8, 1]), device=cpu, dtype=torch.float32, is_shared=False),
-        eta: Tensor(shape=torch.Size([1024, 10, 1]), device=cpu, dtype=torch.float32, is_shared=False),
-        gamma: Tensor(shape=torch.Size([1024, 2, 1]), device=cpu, dtype=torch.float32, is_shared=False),
-        label: Tensor(shape=torch.Size([1024, 10, 1]), device=cpu, dtype=torch.float32, is_shared=False),
-        probability: Tensor(shape=torch.Size([1024, 10, 1]), device=cpu, dtype=torch.float32, is_shared=False),
-        time: Tensor(shape=torch.Size([1024, 10, 1]), device=cpu, dtype=torch.float32, is_shared=False),
-        y: Tensor(shape=torch.Size([1024, 10, 1]), device=cpu, dtype=torch.float32, is_shared=False)},
-    batch_size=torch.Size([1024]),
-    device=None,
-    is_shared=False)
+        U: Tensor(shape=torch.Size([1024, 10, 2]), ...),
+        X: Tensor(shape=torch.Size([1024, 10, 8]), ...),
+        beta: Tensor(shape=torch.Size([1024, 8, 1]), ...),
+        eta: Tensor(shape=torch.Size([1024, 10, 1]), ...),
+        gamma: Tensor(shape=torch.Size([1024, 2, 1]), ...),
+        label: Tensor(shape=torch.Size([1024, 10, 1]), ...),
+        probability: Tensor(shape=torch.Size([1024, 10, 1]), ...),
+        time: Tensor(shape=torch.Size([1024, 10, 1]), ...),
+        y: Tensor(shape=torch.Size([1024, 10, 1]), ...)},
+    batch_size=torch.Size([1024]), ...)
 ```
 
 ### Mixture-cure survival with tokenized sequences
@@ -71,14 +68,14 @@ TensorDict(
 from mimetic import AR1Covariance, Simulation
 
 data = (
-    Simulation(num_samples=1024)
-    .random_effects(stds=[1.0, 0.1])
-    .observations(
+    Simulation(
+        num_samples=1024,
         num_timepoints=10,
         num_features=8,
-        observed_std=0.25,
+        std=0.25,
         covariance=AR1Covariance(correlation=0.8),
     )
+    .random_effects(stds=[1.0, 0.1])
     .logistic(prevalence=0.3)
     .tokenize(vocab_size=256)
     .event_time()
@@ -94,42 +91,41 @@ print(data)
 ```text
 TensorDict(
     fields={
-        U: Tensor(shape=torch.Size([1024, 10, 2]), device=cpu, dtype=torch.float32, is_shared=False),
-        X: Tensor(shape=torch.Size([1024, 10, 8]), device=cpu, dtype=torch.float32, is_shared=False),
-        beta: Tensor(shape=torch.Size([1024, 8, 1]), device=cpu, dtype=torch.float32, is_shared=False),
-        censor_time: Tensor(shape=torch.Size([1024, 1, 1]), device=cpu, dtype=torch.float32, is_shared=False),
-        eta: Tensor(shape=torch.Size([1024, 10, 1]), device=cpu, dtype=torch.float32, is_shared=False),
-        event_time: Tensor(shape=torch.Size([1024, 1, 1]), device=cpu, dtype=torch.float32, is_shared=False),
-        gamma: Tensor(shape=torch.Size([1024, 2, 1]), device=cpu, dtype=torch.float32, is_shared=False),
-        indicator: Tensor(shape=torch.Size([1024, 1, 1]), device=cpu, dtype=torch.float32, is_shared=False),
-        label: Tensor(shape=torch.Size([1024, 10, 1]), device=cpu, dtype=torch.float32, is_shared=False),
-        observed_time: Tensor(shape=torch.Size([1024, 1, 1]), device=cpu, dtype=torch.float32, is_shared=False),
-        probability: Tensor(shape=torch.Size([1024, 10, 1]), device=cpu, dtype=torch.float32, is_shared=False),
-        time: Tensor(shape=torch.Size([1024, 10, 1]), device=cpu, dtype=torch.float32, is_shared=False),
-        time_to_event: Tensor(shape=torch.Size([1024, 10, 1]), device=cpu, dtype=torch.float32, is_shared=False),
-        tokens: Tensor(shape=torch.Size([1024, 10, 1]), device=cpu, dtype=torch.int64, is_shared=False),
-        y: Tensor(shape=torch.Size([1024, 10, 1]), device=cpu, dtype=torch.float32, is_shared=False)},
-    batch_size=torch.Size([1024]),
-    device=None,
-    is_shared=False)
+        U: Tensor(shape=torch.Size([1024, 10, 2]), ...),
+        X: Tensor(shape=torch.Size([1024, 10, 8]), ...),
+        beta: Tensor(shape=torch.Size([1024, 8, 1]), ...),
+        censor_time: Tensor(shape=torch.Size([1024, 1, 1]), ...),
+        eta: Tensor(shape=torch.Size([1024, 10, 1]), ...),
+        event_time: Tensor(shape=torch.Size([1024, 1, 1]), ...),
+        gamma: Tensor(shape=torch.Size([1024, 2, 1]), ...),
+        indicator: Tensor(shape=torch.Size([1024, 1, 1]), ...),
+        label: Tensor(shape=torch.Size([1024, 10, 1]), ...),
+        observed_time: Tensor(shape=torch.Size([1024, 1, 1]), ...),
+        probability: Tensor(shape=torch.Size([1024, 10, 1]), ...),
+        time: Tensor(shape=torch.Size([1024, 10, 1]), ...),
+        time_to_event: Tensor(shape=torch.Size([1024, 10, 1]), ...),
+        tokens: Tensor(shape=torch.Size([1024, 10, 1]), ...),
+        y: Tensor(shape=torch.Size([1024, 10, 1]), ...)},
+    batch_size=torch.Size([1024]), ...)
 ```
 
 ### Typical outputs
 
-- `gamma` (random effects), `y` (scalar GLMM response), `X` (design matrix), `beta` (fixed-effects coefficients), `U` (random-effects design matrix)
+- `y` (response), `X` (design matrix), `beta` (fixed-effects coefficients), `eta` (linear predictor, Xβ or Xβ + Uγ)
+- `gamma` (random effects) and `U` (random-effects design matrix) — present only after `.random_effects()`
 - `tokens` (when `.tokenize()` is called, derived from `X`)
-- `eta` (linear predictor, η = Xβ + Uγ)
 - `probability` and `label` for classification tasks
 - `time`, `event_time`, `censor_time`, `indicator`, `observed_time`,
   `time_to_event` for survival tasks
 
 ## Pipeline stages
 
-After `.observations()`, the pipeline branches by task:
+`Simulation()` creates observations immediately. From there, optionally add
+`.random_effects()`, then branch by task:
 
 | Stage | Methods | Description |
 | ------- | --------- | ------------- |
-| Observed | `.logistic()`, `.multiclass()`, `.ordinal()`, `.event_time()`, `.tokenize()`, `.observation_time()` | Trajectories ready for labeling or tokenization |
+| Simulation | `.random_effects()`, `.observation_time()`, `.logistic()`, `.multiclass()`, `.ordinal()`, `.event_time()`, `.tokenize()` | Observations ready for optional random effects, labeling, or tokenization |
 | Tokenized | `.logistic()`, `.multiclass()`, `.ordinal()`, `.event_time()` | Tokenized trajectories ready for labeling |
 | Labeled | `.event_time()`, `.tokenize()` | Classification labels assigned |
 | EventTime | `.observation_time()`, `.censor_time()` | Survival event times generated |

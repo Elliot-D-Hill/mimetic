@@ -11,6 +11,7 @@ class ObservedState(TypedDict):
     y: Tensor  # [N, T, 1]
     time: Tensor  # [N, T, 1]
     eta: Tensor  # [N, T, 1]
+    noise: Tensor  # [N, T, 1]
     X: Tensor  # [N, T, p]
     beta: Tensor  # [N, p, 1]
     gamma: NotRequired[Tensor]  # [N, q, 1]

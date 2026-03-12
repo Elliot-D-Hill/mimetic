@@ -240,6 +240,123 @@ def test_general_q3_auto_U() -> None:
     assert data["U"].shape == (num_samples, num_timepoints, q)
 
 
+def test_activation_preserves_noise_and_applies_transform() -> None:
+    """activation(torch.relu) zeroes negative eta, preserves noise, and chains to logistic.
+
+    Tests: nonlinearity applied to eta, explicit noise tensor preserved, downstream chaining.
+    """
+    torch.manual_seed(0)
+    num_samples = 64
+    num_timepoints = 6
+    num_features = 4
+    sim = Simulation(num_samples, num_timepoints, num_features, 0.25)
+    noise_before = sim.data["noise"]
+    step = sim.activation(torch.relu)
+    data = step.data
+    assert data["eta"].shape == (num_samples, num_timepoints, 1)
+    assert (data["eta"] >= 0).all()
+    assert torch.allclose(data["noise"], noise_before)
+    assert torch.allclose(data["y"], data["eta"] + data["noise"])
+    labeled = step.logistic(0.3).data
+    assert labeled["probability"].shape == (num_samples, num_timepoints, 1)
+
+
+def test_linear_changes_eta_dimension() -> None:
+    """linear(8) projects eta to [N,T,8], y broadcasts noise [N,T,1] to [N,T,8].
+
+    Tests: eta dimension change, y shape matches, noise tensor unchanged.
+    """
+    torch.manual_seed(0)
+    num_samples = 32
+    num_timepoints = 6
+    num_features = 4
+    sim = Simulation(num_samples, num_timepoints, num_features, 0.25)
+    noise_before = sim.data["noise"]
+    data = sim.linear(8).data
+    assert data["eta"].shape == (num_samples, num_timepoints, 8)
+    assert data["y"].shape == (num_samples, num_timepoints, 8)
+    assert data["noise"].shape == (num_samples, num_timepoints, 1)
+    assert torch.allclose(data["noise"], noise_before)
+
+
+def test_mlp_shapes_and_noise_preservation() -> None:
+    """mlp(32) applies hidden layer and projects back, preserving noise tensor.
+
+    Tests: eta returns to input dim [N,T,1], noise invariant, y = eta + noise.
+    """
+    torch.manual_seed(0)
+    num_samples = 32
+    num_timepoints = 6
+    num_features = 4
+    sim = Simulation(num_samples, num_timepoints, num_features, 0.25)
+    noise_before = sim.data["noise"]
+    data = sim.mlp(32).data
+    assert data["eta"].shape == (num_samples, num_timepoints, 1)
+    assert data["noise"].shape == (num_samples, num_timepoints, 1)
+    assert torch.allclose(data["noise"], noise_before)
+    assert torch.allclose(data["y"], data["eta"] + data["noise"])
+
+
+def test_mlp_chains_to_logistic() -> None:
+    """mlp(32) → logistic(0.3) produces probability and label with correct shapes.
+
+    Tests: end-to-end MLP + classification chain.
+    """
+    torch.manual_seed(0)
+    num_samples = 32
+    num_timepoints = 6
+    num_features = 4
+    data = (
+        Simulation(num_samples, num_timepoints, num_features, 0.25)
+        .mlp(32, torch.relu)
+        .logistic(0.3)
+        .data
+    )
+    assert data["probability"].shape == (num_samples, num_timepoints, 1)
+    assert data["label"].shape == (num_samples, num_timepoints, 1)
+
+
+def test_user_supplied_X_and_beta() -> None:
+    """User-supplied X and beta are used as-is; eta = X @ beta exactly.
+
+    Tests: override path for fixed-effects tensors, verifiable eta.
+    """
+    torch.manual_seed(0)
+    num_samples = 8
+    num_timepoints = 4
+    num_features = 3
+    X = torch.ones(num_samples, num_timepoints, num_features)
+    beta = torch.full((num_samples, num_features, 1), 0.5)
+    data = Simulation(
+        num_samples, num_timepoints, num_features, 0.25, X=X, beta=beta
+    ).data
+    assert torch.equal(data["X"], X)
+    assert torch.equal(data["beta"], beta)
+    assert torch.allclose(
+        data["eta"], torch.full((num_samples, num_timepoints, 1), 1.5)
+    )
+
+
+def test_user_supplied_U_and_gamma() -> None:
+    """User-supplied U and gamma are used as-is in random effects.
+
+    Tests: override path for random-effects tensors, tensors stored unchanged.
+    """
+    torch.manual_seed(0)
+    num_samples = 8
+    num_timepoints = 4
+    q = 2
+    U = torch.ones(num_samples, num_timepoints, q)
+    gamma = torch.full((num_samples, q, 1), 0.25)
+    data = (
+        Simulation(num_samples, num_timepoints, 3, 0.25)
+        .random_effects(stds=[1.0, 0.5], U=U, gamma=gamma)
+        .data
+    )
+    assert torch.equal(data["U"], U)
+    assert torch.equal(data["gamma"], gamma)
+
+
 def test_observations_X_and_beta_shapes() -> None:
     """y = Xβ + ε always generates X and beta with correct shapes."""
     num_samples = 32

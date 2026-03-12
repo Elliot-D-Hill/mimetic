@@ -1,25 +1,24 @@
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
+import torch.nn.functional as F
 from tensordict import TensorDict
 from torch import Tensor
 
 from .covariance import ResidualCovarianceSpec, residual_covariance
 from .functional import (
-    censor_time,
-    event_time,
-    logistic_output,
-    mixture_cure_censoring,
-    multiclass_output,
+    activation,
+    linear,
+    logistic,
+    mlp,
+    multiclass,
     observations,
-    ordinal_output,
+    ordinal,
     random_effects,
     replace_observation_time,
-    replace_survival_observation_time,
-    survival_indicators,
     tokens,
 )
 from .states import (
@@ -30,6 +29,13 @@ from .states import (
     SurvivalState,
     TokenizedState,
 )
+from .survival import (
+    censor_time,
+    event_time,
+    mixture_cure_censoring,
+    replace_survival_observation_time,
+    survival_indicators,
+)
 
 ObservationCovariance = Tensor | ResidualCovarianceSpec
 
@@ -37,11 +43,6 @@ ObservationCovariance = Tensor | ResidualCovarianceSpec
 def _to_tensordict(state: Mapping[str, Any]) -> TensorDict:
     first = next(iter(state.values()))
     return TensorDict(dict(state), batch_size=[first.shape[0]])
-
-
-# ---------------------------------------------------------------------------
-# Main pipeline steps
-# ---------------------------------------------------------------------------
 
 
 class Simulation:
@@ -62,6 +63,10 @@ class Simulation:
         Residual standard deviation sigma.
     covariance
         Residual covariance specification or [T, T] matrix. Defaults to isotropic.
+    X
+        Optional design matrix [N, T, p]; random if omitted.
+    beta
+        Optional coefficients [N, p, 1]; random if omitted.
     """
 
     def __init__(
@@ -72,6 +77,8 @@ class Simulation:
         std: float,
         *,
         covariance: ObservationCovariance | None = None,
+        X: Tensor | None = None,
+        beta: Tensor | None = None,
     ) -> None:
         covariance_matrix = (
             covariance
@@ -79,7 +86,13 @@ class Simulation:
             else residual_covariance(num_timepoints, covariance)
         )
         self.state: ObservedState = observations(
-            num_samples, num_timepoints, num_features, std, covariance_matrix
+            num_samples,
+            num_timepoints,
+            num_features,
+            std,
+            covariance_matrix,
+            X=X,
+            beta=beta,
         )
 
     @classmethod
@@ -93,9 +106,31 @@ class Simulation:
         return _to_tensordict(self.state)
 
     def random_effects(
-        self, stds: Sequence[float], correlation: Tensor | float = 0.0
+        self,
+        stds: Sequence[float],
+        correlation: Tensor | float = 0.0,
+        U: Tensor | None = None,
+        gamma: Tensor | None = None,
     ) -> Simulation:
-        return Simulation._from_state(random_effects(self.state, stds, correlation))
+        return Simulation._from_state(
+            random_effects(self.state, stds, correlation, U=U, gamma=gamma)
+        )
+
+    def activation(self, fn: Callable[[Tensor], Tensor]) -> Simulation:
+        return Simulation._from_state(activation(self.state, fn))
+
+    def linear(self, out_features: int, weight: Tensor | None = None) -> Simulation:
+        return Simulation._from_state(linear(self.state, out_features, weight))
+
+    def mlp(
+        self,
+        hidden_features: int,
+        fn: Callable[[Tensor], Tensor] = F.relu,
+        out_features: int | None = None,
+    ) -> Simulation:
+        return Simulation._from_state(
+            mlp(self.state, hidden_features, fn, out_features)
+        )
 
     def observation_time(self, shape: float, rate: float) -> Simulation:
         return Simulation._from_state(replace_observation_time(self.state, shape, rate))
@@ -106,13 +141,13 @@ class Simulation:
         return TokenizedStep(tokens(self.state, vocab_size, concentration))
 
     def logistic(self, prevalence: float = 0.5) -> LabeledStep:
-        return LabeledStep(logistic_output(self.state, prevalence))
+        return LabeledStep(logistic(self.state, prevalence))
 
     def multiclass(self) -> LabeledStep:
-        return LabeledStep(multiclass_output(self.state))
+        return LabeledStep(multiclass(self.state))
 
     def ordinal(self, num_classes: int) -> LabeledStep:
-        return LabeledStep(ordinal_output(self.state, num_classes))
+        return LabeledStep(ordinal(self.state, num_classes))
 
     def event_time(self) -> EventTimeStep:
         return EventTimeStep(event_time(self.state))
@@ -126,14 +161,28 @@ class TokenizedStep:
     def data(self) -> TensorDict:
         return _to_tensordict(self.state)
 
+    def activation(self, fn: Callable[[Tensor], Tensor]) -> TokenizedStep:
+        return TokenizedStep(activation(self.state, fn))
+
+    def linear(self, out_features: int, weight: Tensor | None = None) -> TokenizedStep:
+        return TokenizedStep(linear(self.state, out_features, weight))
+
+    def mlp(
+        self,
+        hidden_features: int,
+        fn: Callable[[Tensor], Tensor] = F.relu,
+        out_features: int | None = None,
+    ) -> TokenizedStep:
+        return TokenizedStep(mlp(self.state, hidden_features, fn, out_features))
+
     def logistic(self, prevalence: float = 0.5) -> LabeledStep:
-        return LabeledStep(logistic_output(self.state, prevalence))
+        return LabeledStep(logistic(self.state, prevalence))
 
     def multiclass(self) -> LabeledStep:
-        return LabeledStep(multiclass_output(self.state))
+        return LabeledStep(multiclass(self.state))
 
     def ordinal(self, num_classes: int) -> LabeledStep:
-        return LabeledStep(ordinal_output(self.state, num_classes))
+        return LabeledStep(ordinal(self.state, num_classes))
 
     def event_time(self) -> EventTimeStep:
         return EventTimeStep(event_time(self.state))
@@ -147,6 +196,20 @@ class LabeledStep:
     def data(self) -> TensorDict:
         return _to_tensordict(self.state)
 
+    def activation(self, fn: Callable[[Tensor], Tensor]) -> LabeledStep:
+        return LabeledStep(activation(self.state, fn))
+
+    def linear(self, out_features: int, weight: Tensor | None = None) -> LabeledStep:
+        return LabeledStep(linear(self.state, out_features, weight))
+
+    def mlp(
+        self,
+        hidden_features: int,
+        fn: Callable[[Tensor], Tensor] = F.relu,
+        out_features: int | None = None,
+    ) -> LabeledStep:
+        return LabeledStep(mlp(self.state, hidden_features, fn, out_features))
+
     def tokenize(
         self, vocab_size: int = 1000, concentration: float = 1.0
     ) -> LabeledStep:
@@ -157,11 +220,6 @@ class LabeledStep:
 
     def event_time(self) -> LabeledEventTimeStep:
         return LabeledEventTimeStep(event_time(self.state))
-
-
-# ---------------------------------------------------------------------------
-# Survival steps
-# ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)

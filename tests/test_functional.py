@@ -1,5 +1,5 @@
 from mimetic.covariance import AR1Covariance, residual_covariance
-from mimetic.functional import logistic_output, observations, random_effects, tokens
+from mimetic.functional import logistic, observations, random_effects, tokens
 
 
 def test_task_pipeline_smoke() -> None:
@@ -17,7 +17,7 @@ def test_task_pipeline_smoke() -> None:
     )
     data = random_effects(data, stds=[1.0, 0.05])
     data = tokens(data, vocab_size=32)
-    data = logistic_output(data, prevalence=0.3)
+    data = logistic(data, prevalence=0.3)
 
     assert data["y"].shape == (num_samples, num_timepoints, 1)
     assert data["X"].shape == (num_samples, num_timepoints, num_features)
