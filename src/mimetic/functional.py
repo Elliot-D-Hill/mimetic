@@ -17,10 +17,10 @@ def linear_predictor(
     beta: Tensor | None = None,
     time: Tensor | None = None,
 ) -> PredictorState:
-    """Build the linear predictor eta = X*beta (Fahrmeir Box 7.1).
+    """Build the linear predictor eta = X*beta.
 
-    Args
-    ----
+    Parameters
+    ----------
     num_samples
         Number of subjects N.
     num_timepoints
@@ -28,11 +28,40 @@ def linear_predictor(
     num_features
         Number of design matrix features p.
     X
-        Optional design matrix [N, T, p]; random if omitted.
+        Design matrix [N, T, p]; standard normal if omitted.
     beta
-        Optional coefficients [N, p, 1]; random if omitted.
+        Coefficients [N, p, 1]; standard normal if omitted.
     time
-        Optional observation schedule [N, T, 1]; arange(T) if omitted.
+        Observation schedule [N, T, 1]; arange(T) if omitted.
+
+    Returns
+    -------
+    PredictorState
+        State with keys ``eta`` [N, T, 1], ``time`` [N, T, 1],
+        ``X`` [N, T, p], ``beta`` [N, p, 1].
+
+    See Also
+    --------
+    random_effects : Upgrade to GLMM.
+    gaussian, poisson, bernoulli : Response distributions.
+
+    Notes
+    -----
+    Implements Fahrmeir et al. [1]_, Box 7.1:
+
+    .. math:: \\eta = X \\beta
+
+    References
+    ----------
+    .. [1] Fahrmeir, L., Kneib, T., Lang, S., & Marx, B. (2013).
+       *Regression*. Springer.
+
+    Examples
+    --------
+    >>> from mimetic import linear_predictor
+    >>> state = linear_predictor(2, 3, 4)
+    >>> state["eta"].shape
+    torch.Size([2, 3, 1])
     """
     if X is None:
         X = randn(num_samples, num_timepoints, num_features)  # [N, T, p]
@@ -53,12 +82,40 @@ def linear_predictor(
 def gaussian(state: PredictorState, std: float, covariance: Tensor) -> ObservedState:
     """Sample Gaussian response y = eta + epsilon (identity link).
 
-    Args
-    ----
+    Parameters
+    ----------
+    state
+        Must contain ``eta`` [N, T, 1].
     std
         Residual standard deviation sigma.
     covariance
-        Residual correlation matrix Sigma [T, T].
+        Residual correlation matrix [T, T].
+
+    Returns
+    -------
+    ObservedState
+        Adds ``y`` [N, T, 1], ``mu`` [N, T, 1], ``noise`` [N, T, 1].
+
+    See Also
+    --------
+    poisson : Log link.
+    bernoulli : Logit link.
+    categorical : Softmax link.
+    ordinal : Cumulative logit.
+
+    Notes
+    -----
+    .. math:: y = \\eta + \\varepsilon, \\quad
+              \\varepsilon \\sim N(0,\\, \\sigma^2 \\Sigma)
+
+    Examples
+    --------
+    >>> import torch
+    >>> from mimetic import linear_predictor, gaussian
+    >>> state = linear_predictor(2, 3, 4)
+    >>> result = gaussian(state, std=1.0, covariance=torch.eye(3))
+    >>> result["y"].shape
+    torch.Size([2, 3, 1])
     """
     eta = state["eta"]  # [N, T, 1]
     num_samples, num_timepoints = eta.shape[0], eta.shape[1]
@@ -72,7 +129,35 @@ def gaussian(state: PredictorState, std: float, covariance: Tensor) -> ObservedS
 
 
 def poisson(state: PredictorState) -> ObservedState:
-    """Sample Poisson response y ~ Poisson(exp(eta)) (log link)."""
+    """Sample Poisson response y ~ Poisson(exp(eta)) (log link).
+
+    Parameters
+    ----------
+    state
+        Must contain ``eta`` [N, T, 1].
+
+    Returns
+    -------
+    ObservedState
+        Adds ``y`` [N, T, 1], ``mu`` [N, T, 1].
+
+    See Also
+    --------
+    gaussian : Identity link.
+    bernoulli : Logit link.
+
+    Notes
+    -----
+    .. math:: y \\sim \\text{Poisson}(\\exp(\\eta))
+
+    Examples
+    --------
+    >>> from mimetic import linear_predictor, poisson
+    >>> state = linear_predictor(2, 3, 4)
+    >>> result = poisson(state)
+    >>> result["y"].shape
+    torch.Size([2, 3, 1])
+    """
     mu = torch.exp(state["eta"])  # [N, T, 1]
     y = torch.poisson(mu)  # [N, T, 1]
     return ObservedState(**state, y=y, mu=mu)
@@ -81,10 +166,36 @@ def poisson(state: PredictorState) -> ObservedState:
 def bernoulli(state: PredictorState, prevalence: float = 0.5) -> ObservedState:
     """Sample Bernoulli response from linear predictor (logit link).
 
-    Args
-    ----
+    Parameters
+    ----------
+    state
+        Must contain ``eta`` [N, T, 1].
     prevalence
         Base rate used to shift eta before applying sigmoid.
+
+    Returns
+    -------
+    ObservedState
+        Adds ``y`` [N, T, 1], ``mu`` [N, T, 1].
+
+    See Also
+    --------
+    gaussian : Identity link.
+    poisson : Log link.
+    categorical : Softmax link.
+
+    Notes
+    -----
+    .. math:: \\mu = \\sigma(\\eta + \\text{logit}(p)), \\quad
+              y \\sim \\text{Bernoulli}(\\mu)
+
+    Examples
+    --------
+    >>> from mimetic import linear_predictor, bernoulli
+    >>> state = linear_predictor(2, 3, 4)
+    >>> result = bernoulli(state, prevalence=0.3)
+    >>> result["y"].shape
+    torch.Size([2, 3, 1])
     """
     shift = torch.logit(torch.tensor(prevalence))
     mu = torch.sigmoid(state["eta"] + shift)  # [N, T, 1]
@@ -93,7 +204,36 @@ def bernoulli(state: PredictorState, prevalence: float = 0.5) -> ObservedState:
 
 
 def categorical(state: PredictorState) -> ObservedState:
-    """Sample categorical response from linear predictor (softmax link)."""
+    """Sample categorical response from linear predictor (softmax link).
+
+    Parameters
+    ----------
+    state
+        Must contain ``eta`` [N, T, K] with K > 1 classes.
+
+    Returns
+    -------
+    ObservedState
+        Adds ``y`` [N, T, 1], ``mu`` [N, T, K].
+
+    See Also
+    --------
+    ordinal : Cumulative logit for ordered categories.
+    bernoulli : Binary case.
+
+    Notes
+    -----
+    .. math:: \\mu = \\text{softmax}(\\eta), \\quad
+              y \\sim \\text{Categorical}(\\mu)
+
+    Examples
+    --------
+    >>> from mimetic import linear_predictor, linear, categorical
+    >>> state = linear(linear_predictor(2, 3, 4), out_features=5)
+    >>> result = categorical(state)
+    >>> result["y"].shape
+    torch.Size([2, 3, 1])
+    """
     mu = torch.softmax(state["eta"], dim=-1)  # [N, T, K]
     y = dist.Categorical(probs=mu).sample().unsqueeze(-1)  # [N, T, 1]
     return ObservedState(**state, y=y, mu=mu)
@@ -102,7 +242,42 @@ def categorical(state: PredictorState) -> ObservedState:
 def ordinal(
     state: PredictorState, num_classes: int, start: float = -2.0, end: float = 2.0
 ) -> ObservedState:
-    """Sample ordinal response via cumulative logit model."""
+    """Sample ordinal response via cumulative logit model.
+
+    Parameters
+    ----------
+    state
+        Must contain ``eta`` [N, T, 1].
+    num_classes
+        Number of ordinal categories K.
+    start
+        Lower bound for evenly spaced thresholds.
+    end
+        Upper bound for evenly spaced thresholds.
+
+    Returns
+    -------
+    ObservedState
+        Adds ``y`` [N, T, 1], ``mu`` [N, T, K].
+
+    See Also
+    --------
+    categorical : Unordered categories.
+    bernoulli : Binary case.
+
+    Notes
+    -----
+    .. math:: P(y \\leq k) = \\sigma(\\theta_k - \\eta), \\quad
+              k = 1, \\ldots, K-1
+
+    Examples
+    --------
+    >>> from mimetic import linear_predictor, ordinal
+    >>> state = linear_predictor(2, 3, 4)
+    >>> result = ordinal(state, num_classes=4)
+    >>> result["mu"].shape
+    torch.Size([2, 3, 4])
+    """
     eta = state["eta"]  # [N, T, 1]
     thresholds = torch.linspace(start, end, num_classes - 1)  # [K-1]
     cumulative = torch.sigmoid(thresholds - eta)  # [N, T, K-1]
@@ -127,22 +302,54 @@ def random_effects(
     U: Tensor | None = None,
     gamma: Tensor | None = None,
 ) -> PredictorState:
-    """Add random effects U*gamma to the linear predictor (Fahrmeir et al., Eq. 7.11).
+    """Add random effects U*gamma to the linear predictor.
 
-    Upgrades eta = X*beta to eta = X*beta + U*gamma.
-    U is a Vandermonde (polynomial) basis.
+    Upgrades eta = X*beta to eta = X*beta + U*gamma where U is a
+    Vandermonde (polynomial) basis by default.
 
-    Args
-    ----
+    Parameters
+    ----------
+    state
+        Must contain ``eta`` [N, T, 1] and ``time`` [N, T, 1].
     std
-        Standard deviations for each random effect; len determines q.
+        Standard deviations for each random effect; length determines q.
     correlation
-        Off-diagonal correlation. Scalar gives compound symmetry,
-        Tensor gives a user-provided [q, q] correlation matrix.
+        Off-diagonal correlation. Scalar gives compound symmetry;
+        matrix gives a user-provided [q, q] correlation matrix.
     U
-        Optional design matrix [N, T, q]; Vandermonde basis if omitted.
+        Random-effects design matrix [N, T, q]; Vandermonde basis if omitted.
     gamma
-        Optional coefficients [N, q, 1]; sampled from MVN(0, Q) if omitted.
+        Random-effects coefficients [N, q, 1]; sampled from MVN(0, Q)
+        if omitted.
+
+    Returns
+    -------
+    PredictorState
+        Updates ``eta`` [N, T, 1] and adds ``gamma`` [N, q, 1],
+        ``U`` [N, T, q].
+
+    See Also
+    --------
+    linear_predictor : Build the fixed-effects predictor.
+    random_effects_covariance : Build the covariance Q = S R S.
+
+    Notes
+    -----
+    Implements Fahrmeir et al. [1]_, Eq. 7.11:
+
+    .. math:: \\eta = X \\beta + U \\gamma, \\quad \\gamma \\sim N(0, Q)
+
+    References
+    ----------
+    .. [1] Fahrmeir, L., Kneib, T., Lang, S., & Marx, B. (2013).
+       *Regression*. Springer.
+
+    Examples
+    --------
+    >>> from mimetic import linear_predictor, random_effects
+    >>> state = random_effects(linear_predictor(2, 3, 4), std=[0.5, 1.0])
+    >>> state["gamma"].shape
+    torch.Size([2, 2, 1])
     """
     num_samples, num_timepoints, _ = state["eta"].shape
     s = torch.atleast_1d(torch.as_tensor(std, dtype=torch.float32))
@@ -167,10 +374,30 @@ def random_effects(
 def activation[T: PredictorState](state: T, fn: Callable[[Tensor], Tensor]) -> T:
     """Apply a nonlinear activation to the linear predictor.
 
-    Args
-    ----
+    Parameters
+    ----------
+    state
+        Must contain ``eta``.
     fn
-        Elementwise activation (e.g. torch.relu, torch.tanh).
+        Elementwise activation (e.g. ``torch.relu``, ``torch.tanh``).
+
+    Returns
+    -------
+    T
+        Same state type with transformed ``eta``.
+
+    See Also
+    --------
+    linear : Linear projection.
+    mlp : Composed linear-activation-linear.
+
+    Examples
+    --------
+    >>> import torch
+    >>> from mimetic import linear_predictor, activation
+    >>> state = activation(linear_predictor(2, 3, 4), torch.relu)
+    >>> state["eta"].shape
+    torch.Size([2, 3, 1])
     """
     result = state.copy()
     result["eta"] = fn(state["eta"])
@@ -182,14 +409,35 @@ def linear[T: PredictorState](
 ) -> T:
     """Apply a random linear projection to the linear predictor.
 
-    Transforms eta [N, T, in] -> eta [N, T, out] via eta @ W.
-
-    Args
-    ----
+    Parameters
+    ----------
+    state
+        Must contain ``eta`` [N, T, in_features].
     out_features
         Output dimension.
     weight
-        Optional [in, out] weight matrix; random if omitted.
+        Projection matrix [in_features, out_features]; random if omitted.
+
+    Returns
+    -------
+    T
+        Same state type with ``eta`` reshaped to [N, T, out_features].
+
+    See Also
+    --------
+    activation : Nonlinear transform.
+    mlp : Composed linear-activation-linear.
+
+    Notes
+    -----
+    .. math:: \\eta' = \\eta \\, W
+
+    Examples
+    --------
+    >>> from mimetic import linear_predictor, linear
+    >>> state = linear(linear_predictor(2, 3, 4), out_features=5)
+    >>> state["eta"].shape
+    torch.Size([2, 3, 5])
     """
     result = state.copy()
     eta = state["eta"]  # [N, T, in]
@@ -207,14 +455,33 @@ def mlp[T: PredictorState](
 ) -> T:
     """Apply a single hidden-layer MLP: linear -> activation -> linear.
 
-    Args
-    ----
+    Parameters
+    ----------
+    state
+        Must contain ``eta`` [N, T, in_features].
     hidden_features
         Hidden layer dimension.
     fn
         Activation function between layers.
     out_features
         Output dimension; defaults to input dimension.
+
+    Returns
+    -------
+    T
+        Same state type with transformed ``eta``.
+
+    See Also
+    --------
+    linear : Single linear projection.
+    activation : Nonlinear transform.
+
+    Examples
+    --------
+    >>> from mimetic import linear_predictor, mlp
+    >>> state = mlp(linear_predictor(2, 3, 4), hidden_features=8)
+    >>> state["eta"].shape
+    torch.Size([2, 3, 1])
     """
     if out_features is None:
         out_features = state["eta"].shape[-1]
@@ -230,9 +497,34 @@ def mlp[T: PredictorState](
 def tokens(
     state: ObservedState, vocab_size: int, concentration: float = 1.0
 ) -> TokenizedState:
-    """Tokenize design matrix via Dirichlet-skewed softmax.
+    """Tokenize the design matrix via Dirichlet-skewed softmax.
 
-    Produces 'tokens' [N, T, 1] from 'X' [N, T, p].
+    Parameters
+    ----------
+    state
+        Must contain ``X`` [N, T, p].
+    vocab_size
+        Number of discrete token classes K.
+    concentration
+        Dirichlet concentration for the softmax skew.
+
+    Returns
+    -------
+    TokenizedState
+        Adds ``tokens`` [N, T, 1].
+
+    See Also
+    --------
+    gaussian, poisson : Response distributions that precede tokenization.
+
+    Examples
+    --------
+    >>> import torch
+    >>> from mimetic import linear_predictor, gaussian, tokens
+    >>> state = gaussian(linear_predictor(2, 3, 4), 1.0, torch.eye(3))
+    >>> result = tokens(state, vocab_size=100)
+    >>> result["tokens"].shape
+    torch.Size([2, 3, 1])
     """
     X = state["X"]  # [N, T, p]
     p = X.shape[-1]
@@ -247,9 +539,38 @@ def tokens(
 
 
 def observation_time[T: PredictorState](state: T, shape: float, rate: float) -> T:
-    """Generate Gamma-distributed observation intervals.
+    """Replace observation times with Gamma-distributed intervals.
 
-    Produces 'time' [N, T, 1].
+    Parameters
+    ----------
+    state
+        Must contain ``eta`` [N, T, ...].
+    shape
+        Gamma distribution shape parameter.
+    rate
+        Gamma distribution rate parameter.
+
+    Returns
+    -------
+    T
+        Same state type with ``time`` [N, T, 1] replaced by cumulative
+        Gamma intervals.
+
+    See Also
+    --------
+    linear_predictor : Default evenly spaced time grid.
+
+    Notes
+    -----
+    .. math:: \\Delta t_i \\sim \\text{Gamma}(\\alpha, \\beta), \\quad
+              t_i = \\sum_{j \\leq i} \\Delta t_j
+
+    Examples
+    --------
+    >>> from mimetic import linear_predictor, observation_time
+    >>> state = observation_time(linear_predictor(2, 3, 4), shape=2.0, rate=1.0)
+    >>> state["time"].shape
+    torch.Size([2, 3, 1])
     """
     num_samples, num_timepoints = state["eta"].shape[0], state["eta"].shape[1]
     gamma_dist = dist.Gamma(shape, rate)

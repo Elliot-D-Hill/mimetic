@@ -10,9 +10,10 @@ wheels/
 .venv
 
 
-docs/
+docs/_build/
 scripts/
 data/
+dev/
 .DS_Store
 .claude/
 notebooks/

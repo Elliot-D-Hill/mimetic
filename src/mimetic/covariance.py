@@ -9,19 +9,47 @@ from torch import Tensor
 
 @dataclass(frozen=True)
 class IsotropicCovariance:
-    """Identity residual covariance Σ = I."""
+    """Identity residual covariance Sigma = I.
+
+    See Also
+    --------
+    residual_covariance : Dispatch to structure-specific builders.
+    isotropic_covariance : Build the matrix.
+    """
 
 
 @dataclass(frozen=True)
 class AR1Covariance:
-    """AR(1) residual covariance specification."""
+    """AR(1) residual covariance Sigma[j,k] = rho^|j-k|.
+
+    Parameters
+    ----------
+    correlation
+        Autocorrelation parameter in (0, 1).
+
+    See Also
+    --------
+    residual_covariance : Dispatch to structure-specific builders.
+    ar1_covariance : Build the matrix.
+    """
 
     correlation: float = 0.9
 
 
 @dataclass(frozen=True)
 class LKJCovariance:
-    """Unstructured LKJ residual covariance specification."""
+    """Unstructured correlation matrix sampled from an LKJ distribution.
+
+    Parameters
+    ----------
+    concentration
+        LKJ concentration; 1.0 gives uniform over correlation matrices.
+
+    See Also
+    --------
+    residual_covariance : Dispatch to structure-specific builders.
+    lkj_covariance : Build the matrix.
+    """
 
     concentration: float = 1.0
 
@@ -30,19 +58,67 @@ ResidualCovarianceSpec: TypeAlias = IsotropicCovariance | AR1Covariance | LKJCov
 
 
 def isotropic_covariance(num_timepoints: int) -> Tensor:
-    """Identity covariance Σ = I (no temporal correlation)."""
+    """Build identity covariance Sigma = I (no temporal correlation).
+
+    Parameters
+    ----------
+    num_timepoints
+        Number of time points T.
+
+    Returns
+    -------
+    Tensor
+        Identity matrix [T, T].
+
+    See Also
+    --------
+    ar1_covariance : Autoregressive structure.
+    lkj_covariance : Unstructured correlation.
+
+    Examples
+    --------
+    >>> from mimetic.covariance import isotropic_covariance
+    >>> isotropic_covariance(3).shape
+    torch.Size([3, 3])
+    """
     return torch.eye(num_timepoints)  # [T, T]
 
 
 def ar1_covariance(correlation: float, num_timepoints: int) -> Tensor:
-    """AR(1) residual covariance Σ[j,k] = ρ^|j − k| (Fahrmeir et al., §7.1.3).
+    """Build AR(1) residual covariance Sigma[j,k] = rho^|j-k|.
 
-    Uses index-based spacing; for irregular time grids, pass actual time
-    differences instead (see MIXED_MODEL_REFACTOR_NOTES.md, Invariant 3).
+    Parameters
+    ----------
+    correlation
+        Autocorrelation parameter in (0, 1).
+    num_timepoints
+        Number of time points T.
 
-    Args:
-        correlation: Autocorrelation parameter in (0, 1).
-        num_timepoints: Number of time points (size of covariance matrix).
+    Returns
+    -------
+    Tensor
+        Covariance matrix [T, T].
+
+    See Also
+    --------
+    isotropic_covariance : Identity (rho = 0).
+    lkj_covariance : Unstructured correlation.
+
+    Notes
+    -----
+    Implements index-based spacing (Fahrmeir et al. [1]_, Section 7.1.3).
+    For irregular time grids, pass actual time differences instead.
+
+    References
+    ----------
+    .. [1] Fahrmeir, L., Kneib, T., Lang, S., & Marx, B. (2013).
+       *Regression*. Springer.
+
+    Examples
+    --------
+    >>> from mimetic.covariance import ar1_covariance
+    >>> ar1_covariance(0.9, 3).shape
+    torch.Size([3, 3])
     """
     grid = torch.arange(num_timepoints, dtype=torch.float32)  # [T]
     diff = torch.abs(grid.unsqueeze(0) - grid.unsqueeze(1))  # [T, T]
@@ -50,11 +126,30 @@ def ar1_covariance(correlation: float, num_timepoints: int) -> Tensor:
 
 
 def lkj_covariance(concentration: float, num_timepoints: int) -> Tensor:
-    """Sample an unstructured correlation matrix from LKJ distribution.
+    """Sample an unstructured correlation matrix from the LKJ distribution.
 
-    Args:
-        concentration: Concentration parameter. concentration=1 gives uniform over correlation matrices.
-        num_timepoints: Number of time points (dimension of the correlation matrix).
+    Parameters
+    ----------
+    concentration
+        LKJ concentration; 1.0 gives uniform over correlation matrices.
+    num_timepoints
+        Dimension of the correlation matrix T.
+
+    Returns
+    -------
+    Tensor
+        Correlation matrix [T, T].
+
+    See Also
+    --------
+    isotropic_covariance : Identity structure.
+    ar1_covariance : Autoregressive structure.
+
+    Examples
+    --------
+    >>> from mimetic.covariance import lkj_covariance
+    >>> lkj_covariance(1.0, 3).shape
+    torch.Size([3, 3])
     """
     lkj = dist.LKJCholesky(num_timepoints, concentration=concentration)
     L: Tensor = lkj.sample()  # [T, T]
@@ -64,12 +159,44 @@ def lkj_covariance(concentration: float, num_timepoints: int) -> Tensor:
 def random_effects_covariance(
     std: Sequence[float] | Tensor | float, correlation: Tensor | float = 0.0
 ) -> Tensor:
-    """Build the random-effects covariance Q = S R S (Fahrmeir et al., Eq. 7.11).
+    """Build the random-effects covariance Q = S R S.
 
-    Args:
-        std: Standard deviations for each random effect; len determines q.
-        correlation: Off-diagonal correlation. Scalar gives compound symmetry
-            R = I(1−ρ) + J·ρ. Matrix gives a user-provided [q, q] correlation matrix.
+    Parameters
+    ----------
+    std
+        Standard deviations for each random effect; length determines q.
+    correlation
+        Off-diagonal correlation. Scalar gives compound symmetry
+        R = I(1-rho) + J*rho; matrix gives a user-provided [q, q]
+        correlation matrix.
+
+    Returns
+    -------
+    Tensor
+        Covariance matrix [q, q].
+
+    See Also
+    --------
+    random_effects : Add U*gamma to the linear predictor using this covariance.
+
+    Notes
+    -----
+    Implements Fahrmeir et al. [1]_, Eq. 7.11:
+
+    .. math:: Q = S \\, R \\, S
+
+    where S = diag(sigma_1, ..., sigma_q) and R is the correlation matrix.
+
+    References
+    ----------
+    .. [1] Fahrmeir, L., Kneib, T., Lang, S., & Marx, B. (2013).
+       *Regression*. Springer.
+
+    Examples
+    --------
+    >>> from mimetic.covariance import random_effects_covariance
+    >>> random_effects_covariance([0.5, 1.0]).shape
+    torch.Size([2, 2])
     """
     s: Tensor = torch.atleast_1d(torch.as_tensor(std, dtype=torch.float32))
     q = s.shape[0]
@@ -85,14 +212,44 @@ def random_effects_covariance(
 def residual_covariance(
     num_timepoints: int, covariance: ResidualCovarianceSpec | None = None
 ) -> Tensor:
-    """Build the within-subject residual covariance Σ (Fahrmeir et al., Eq. 7.21).
+    """Build the within-subject residual covariance Sigma.
 
-    This constructs the per-subject error covariance structure, not the
-    random-effects covariance Q.
+    Dispatches to structure-specific builders based on the covariance
+    specification.
 
-    Args:
-        num_timepoints: Number of time points (size of covariance matrix).
-        covariance: Residual covariance specification. Defaults to isotropic.
+    Parameters
+    ----------
+    num_timepoints
+        Number of time points T.
+    covariance
+        Covariance specification; defaults to isotropic (identity).
+
+    Returns
+    -------
+    Tensor
+        Covariance matrix [T, T].
+
+    See Also
+    --------
+    isotropic_covariance : Identity structure.
+    ar1_covariance : Autoregressive structure.
+    lkj_covariance : Unstructured correlation.
+
+    Notes
+    -----
+    Constructs the per-subject error covariance Sigma (Fahrmeir et al. [1]_,
+    Eq. 7.21), not the random-effects covariance Q.
+
+    References
+    ----------
+    .. [1] Fahrmeir, L., Kneib, T., Lang, S., & Marx, B. (2013).
+       *Regression*. Springer.
+
+    Examples
+    --------
+    >>> from mimetic.covariance import residual_covariance, AR1Covariance
+    >>> residual_covariance(3, AR1Covariance(0.8)).shape
+    torch.Size([3, 3])
     """
     if covariance is None or isinstance(covariance, IsotropicCovariance):
         return isotropic_covariance(num_timepoints)

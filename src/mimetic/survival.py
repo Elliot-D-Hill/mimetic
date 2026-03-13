@@ -1,6 +1,5 @@
 import torch
 import torch.distributions as dist
-
 import torch.nn.functional as F
 from torch import Tensor
 
@@ -17,9 +16,38 @@ from .states import (
 
 
 def event_time(state: ObservedState) -> EventTimeState:
-    """Sample event time from exponential distribution.
+    """Sample event time from an exponential distribution.
 
-    Aggregates eta to subject level: mean over timepoints -> single event time.
+    Aggregates ``eta`` to subject level via mean over timepoints, then
+    samples a single event time per subject.
+
+    Parameters
+    ----------
+    state
+        Must contain ``eta`` [N, T, 1].
+
+    Returns
+    -------
+    EventTimeState
+        Adds ``event_time`` [N, 1, 1].
+
+    See Also
+    --------
+    censor_time : Next step in the survival pipeline.
+    competing_risks : Alternative multi-risk event model.
+
+    Notes
+    -----
+    .. math:: t^* \\sim \\text{Exp}(\\exp(\\bar{\\eta}))
+
+    Examples
+    --------
+    >>> import torch
+    >>> from mimetic import linear_predictor, gaussian, event_time
+    >>> obs = gaussian(linear_predictor(2, 3, 4), 1.0, torch.eye(3))
+    >>> result = event_time(obs)
+    >>> result["event_time"].shape
+    torch.Size([2, 1, 1])
     """
     subject_eta = state["eta"].mean(dim=1, keepdim=True)  # [N, 1, 1]
     rate = torch.exp(subject_eta)
@@ -28,9 +56,32 @@ def event_time(state: ObservedState) -> EventTimeState:
 
 
 def mixture_cure_censoring(state: EventTimeState) -> EventTimeState:
-    """Set event_time to infinity for cured individuals (y == 0 at all timepoints).
+    """Set event time to infinity for cured subjects (y == 0 everywhere).
 
-    Reads 'y' [N, T, 1], 'event_time' [N, 1, 1]. Modifies 'event_time'.
+    Parameters
+    ----------
+    state
+        Must contain ``y`` [N, T, 1] and ``event_time`` [N, 1, 1].
+
+    Returns
+    -------
+    EventTimeState
+        Same state with ``event_time`` set to inf where cured.
+
+    See Also
+    --------
+    event_time : Produce the initial event times.
+    censor_time : Next step after cure adjustment.
+
+    Examples
+    --------
+    >>> import torch
+    >>> from mimetic import linear_predictor, bernoulli, event_time
+    >>> from mimetic.survival import mixture_cure_censoring
+    >>> obs = bernoulli(linear_predictor(2, 3, 4), prevalence=0.01)
+    >>> result = mixture_cure_censoring(event_time(obs))
+    >>> result["event_time"].shape
+    torch.Size([2, 1, 1])
     """
     y = state["y"]
     cured = (y == 0).all(dim=1, keepdim=True)  # [N, 1, 1]
@@ -42,9 +93,35 @@ def mixture_cure_censoring(state: EventTimeState) -> EventTimeState:
 
 
 def censor_time(state: EventTimeState) -> CensoredState:
-    """Sample uniform censor time between min and max observation time.
+    """Sample uniform censor time within the observation window.
 
-    Reads 'time' [N, T, 1]. Produces 'censor_time' [N, 1, 1].
+    Parameters
+    ----------
+    state
+        Must contain ``time`` [N, T, 1].
+
+    Returns
+    -------
+    CensoredState
+        Adds ``censor_time`` [N, 1, 1].
+
+    See Also
+    --------
+    event_time : Preceding step.
+    survival_indicators : Next step.
+
+    Notes
+    -----
+    .. math:: c \\sim \\text{Uniform}(t_{\\min}, t_{\\max})
+
+    Examples
+    --------
+    >>> import torch
+    >>> from mimetic import linear_predictor, gaussian, event_time, censor_time
+    >>> obs = gaussian(linear_predictor(2, 3, 4), 1.0, torch.eye(3))
+    >>> result = censor_time(event_time(obs))
+    >>> result["censor_time"].shape
+    torch.Size([2, 1, 1])
     """
     time = state["time"]
     min_time = torch.amin(time, dim=1, keepdim=True)
@@ -54,9 +131,40 @@ def censor_time(state: EventTimeState) -> CensoredState:
 
 
 def survival_indicators(state: CensoredState) -> SurvivalState:
-    """Compute survival analysis indicators from event, censor, and observation times.
+    """Compute survival indicators from event and censor times.
 
-    Produces 'indicator' [N, 1, 1], 'observed_time' [N, 1, 1], 'time_to_event' [N, T, 1].
+    Parameters
+    ----------
+    state
+        Must contain ``event_time`` [N, 1, 1], ``censor_time`` [N, 1, 1],
+        and ``time`` [N, T, 1].
+
+    Returns
+    -------
+    SurvivalState
+        Adds ``indicator`` [N, 1, 1], ``observed_time`` [N, 1, 1],
+        ``time_to_event`` [N, T, 1].
+
+    See Also
+    --------
+    censor_time : Preceding step.
+    event_time : Produce event times.
+
+    Notes
+    -----
+    .. math::
+        \\delta = \\mathbb{1}(t^* < c), \\quad
+        \\tilde{t} = \\min(t^*, c)
+
+    Examples
+    --------
+    >>> import torch
+    >>> from mimetic import linear_predictor, gaussian
+    >>> from mimetic import event_time, censor_time, survival_indicators
+    >>> obs = gaussian(linear_predictor(2, 3, 4), 1.0, torch.eye(3))
+    >>> result = survival_indicators(censor_time(event_time(obs)))
+    >>> result["indicator"].shape
+    torch.Size([2, 1, 1])
     """
     indicator = (state["event_time"] < state["censor_time"]).float()  # [N, 1, 1]
     observed_time = torch.minimum(
@@ -79,14 +187,39 @@ def survival_indicators(state: CensoredState) -> SurvivalState:
 def competing_risks(
     state: PredictorState, shape: float | Tensor = 1.0
 ) -> CompetingRisksState:
-    """Sample per-risk failure times from Weibull(scale, shape).
+    """Sample per-risk failure times from Weibull distributions.
 
-    Each column of eta [N, T, K] parameterizes one risk's Weibull scale.
+    Each column of ``eta`` [N, T, K] parameterizes one risk's Weibull scale.
 
-    Args
-    ----
+    Parameters
+    ----------
+    state
+        Must contain ``eta`` [N, T, K].
     shape
-        Weibull shape parameter; 1.0 gives Exponential.
+        Weibull shape parameter; 1.0 reduces to exponential.
+
+    Returns
+    -------
+    CompetingRisksState
+        Adds ``failure_times`` [N, T, K] and ``tokens`` [N, T, 1]
+        (argmin risk index).
+
+    See Also
+    --------
+    risk_indicators : First-failure encoding.
+    multi_event : Suffix-minimum encoding.
+
+    Notes
+    -----
+    .. math:: t_k \\sim \\text{Weibull}(\\text{softplus}(\\eta_k),\\, \\alpha)
+
+    Examples
+    --------
+    >>> from mimetic import linear_predictor, linear, competing_risks
+    >>> state = linear(linear_predictor(2, 3, 4), out_features=3)
+    >>> result = competing_risks(state)
+    >>> result["failure_times"].shape
+    torch.Size([2, 3, 3])
     """
     eps = 1e-6
     scale = F.softplus(state["eta"]) + eps  # [N, T, K]
@@ -96,7 +229,33 @@ def competing_risks(
 
 
 def risk_indicators(state: CompetingRisksState) -> RiskIndicatorState:
-    """One-hot encode the winning risk and broadcast min failure time to [N, T, K]."""
+    """One-hot encode the winning risk and broadcast event time to [N, T, K].
+
+    Parameters
+    ----------
+    state
+        Must contain ``failure_times`` [N, T, K] and ``tokens`` [N, T, 1].
+
+    Returns
+    -------
+    RiskIndicatorState
+        Adds ``indicator`` [N, T, K] and ``event_time`` [N, T, K].
+
+    See Also
+    --------
+    competing_risks : Preceding step.
+    multi_event : Alternative suffix-minimum encoding.
+    discretize_risk : Discretize into interval bins.
+
+    Examples
+    --------
+    >>> from mimetic import linear_predictor, linear, competing_risks
+    >>> from mimetic import risk_indicators
+    >>> state = linear(linear_predictor(2, 3, 4), out_features=3)
+    >>> result = risk_indicators(competing_risks(state))
+    >>> result["indicator"].shape
+    torch.Size([2, 3, 3])
+    """
     failure_times = state["failure_times"]  # [N, T, K]
     K = failure_times.shape[-1]
     tokens = state["tokens"].squeeze(-1)  # [N, T]
@@ -112,10 +271,32 @@ def multi_event(
 ) -> RiskIndicatorState:
     """Compute per-risk TTE via suffix-minimum over the observation schedule.
 
-    Args
-    ----
+    Parameters
+    ----------
+    state
+        Must contain ``failure_times`` [N, T, K], ``tokens`` [N, T, 1],
+        and ``time`` [N, T, 1].
     horizon
         Clamp ceiling for event times; inferred from data if omitted.
+
+    Returns
+    -------
+    RiskIndicatorState
+        Adds ``event_time`` [N, T, K] and ``indicator`` [N, T, K].
+
+    See Also
+    --------
+    competing_risks : Preceding step.
+    risk_indicators : Alternative first-failure encoding.
+    discretize_risk : Discretize into interval bins.
+
+    Examples
+    --------
+    >>> from mimetic import linear_predictor, linear, competing_risks, multi_event
+    >>> state = linear(linear_predictor(2, 3, 4), out_features=3)
+    >>> result = multi_event(competing_risks(state))
+    >>> result["event_time"].shape
+    torch.Size([2, 3, 3])
     """
     time = state["time"]  # [N, T, 1]
     K = state["failure_times"].shape[-1]
@@ -137,10 +318,35 @@ def multi_event(
 def discretize_risk(state: RiskIndicatorState, boundaries: Tensor) -> DiscreteRiskState:
     """Discretize continuous event times into interval bins.
 
-    Args
-    ----
+    Parameters
+    ----------
+    state
+        Must contain ``event_time`` [N, T, K] and ``indicator`` [N, T, K].
     boundaries
         Monotonic bin edges [J+1]; produces J intervals.
+
+    Returns
+    -------
+    DiscreteRiskState
+        Adds ``discrete_event_time`` [N, T, K, J].
+
+    See Also
+    --------
+    risk_indicators : Preceding step (first-failure).
+    multi_event : Preceding step (suffix-minimum).
+
+    Examples
+    --------
+    >>> import torch
+    >>> from mimetic import linear_predictor, linear, competing_risks
+    >>> from mimetic import risk_indicators, discretize_risk
+    >>> state = linear(linear_predictor(2, 3, 4), out_features=3)
+    >>> result = discretize_risk(
+    ...     risk_indicators(competing_risks(state)),
+    ...     boundaries=torch.linspace(0, 5, 6),
+    ... )
+    >>> result["discrete_event_time"].shape
+    torch.Size([2, 3, 3, 5])
     """
     et = state["event_time"]  # [N, T, K]
     indicator = state["indicator"]  # [N, T, K]
