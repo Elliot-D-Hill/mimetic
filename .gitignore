@@ -11,6 +11,7 @@ wheels/
 
 
 docs/_build/
+docs/api/generated/
 scripts/
 data/
 dev/
