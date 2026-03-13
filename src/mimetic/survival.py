@@ -7,6 +7,7 @@ from .states import (
     CensoredState,
     CompetingRisksState,
     DiscreteRiskState,
+    EventProcessState,
     EventTimeState,
     ObservedState,
     PredictorState,
@@ -180,6 +181,56 @@ def survival_indicators(state: CensoredState) -> SurvivalState:
 
 
 # ---------------------------------------------------------------------------
+# Event processes
+# ---------------------------------------------------------------------------
+
+
+def independent_events(
+    state: PredictorState, prevalence: float = 0.1
+) -> EventProcessState:
+    """Generate a multilabel event mask via independent Bernoulli draws.
+
+    Each risk column in ``eta`` [N, T, K] is converted to an event
+    probability using a logit shift (same pattern as :func:`bernoulli`).
+    Multiple risks can fire at the same timepoint.
+
+    Parameters
+    ----------
+    state
+        Must contain ``eta`` [N, T, K].
+    prevalence
+        Base rate per risk; shifts logits before sigmoid.
+
+    Returns
+    -------
+    EventProcessState
+        Adds ``event_mask`` [N, T, K] (boolean, multi-hot).
+
+    See Also
+    --------
+    competing_risks : Single-winner Weibull alternative.
+    multi_event : Downstream suffix-minimum TTE encoding.
+
+    Notes
+    -----
+    .. math:: p_k = \\sigma(\\eta_k + \\text{logit}(\\text{prevalence})),
+              \\quad m_k \\sim \\text{Bernoulli}(p_k)
+
+    Examples
+    --------
+    >>> from mimetic import linear_predictor, linear, independent_events
+    >>> state = linear(linear_predictor(2, 3, 4), out_features=3)
+    >>> result = independent_events(state)
+    >>> result["event_mask"].shape
+    torch.Size([2, 3, 3])
+    """
+    shift = torch.logit(torch.tensor(prevalence))
+    event_prob = torch.sigmoid(state["eta"] + shift)  # [N, T, K]
+    event_mask = torch.bernoulli(event_prob).bool()  # [N, T, K]
+    return EventProcessState(**state, event_mask=event_mask)
+
+
+# ---------------------------------------------------------------------------
 # Competing risks
 # ---------------------------------------------------------------------------
 
@@ -225,7 +276,13 @@ def competing_risks(
     scale = F.softplus(state["eta"]) + eps  # [N, T, K]
     failure_times = dist.Weibull(scale, shape).rsample()  # [N, T, K]
     tokens = failure_times.argmin(dim=-1, keepdim=True)  # [N, T, 1]
-    return CompetingRisksState(**state, failure_times=failure_times, tokens=tokens)
+    K = failure_times.shape[-1]
+    event_mask = F.one_hot(tokens.squeeze(-1), num_classes=K).to(
+        torch.bool
+    )  # [N, T, K]
+    return CompetingRisksState(
+        **state, failure_times=failure_times, tokens=tokens, event_mask=event_mask
+    )
 
 
 def risk_indicators(state: CompetingRisksState) -> RiskIndicatorState:
@@ -267,15 +324,18 @@ def risk_indicators(state: CompetingRisksState) -> RiskIndicatorState:
 
 
 def multi_event(
-    state: CompetingRisksState, horizon: float | Tensor | None = None
+    state: EventProcessState, horizon: float | Tensor | None = None
 ) -> RiskIndicatorState:
     """Compute per-risk TTE via suffix-minimum over the observation schedule.
+
+    The event mask can come from either ``competing_risks`` (single-winner,
+    multiclass) or ``independent_events`` (multi-hot, multilabel).  The
+    suffix-minimum algorithm is the same in both cases.
 
     Parameters
     ----------
     state
-        Must contain ``failure_times`` [N, T, K], ``tokens`` [N, T, 1],
-        and ``time`` [N, T, 1].
+        Must contain ``event_mask`` [N, T, K] and ``time`` [N, T, 1].
     horizon
         Clamp ceiling for event times; inferred from data if omitted.
 
@@ -286,8 +346,9 @@ def multi_event(
 
     See Also
     --------
-    competing_risks : Preceding step.
-    risk_indicators : Alternative first-failure encoding.
+    competing_risks : Single-winner event process.
+    independent_events : Multilabel event process.
+    risk_indicators : Alternative first-failure encoding (competing risks only).
     discretize_risk : Discretize into interval bins.
 
     Examples
@@ -299,9 +360,8 @@ def multi_event(
     torch.Size([2, 3, 3])
     """
     time = state["time"]  # [N, T, 1]
-    K = state["failure_times"].shape[-1]
-    tokens = state["tokens"].squeeze(-1)  # [N, T]
-    event_mask = F.one_hot(tokens, num_classes=K).to(torch.bool)  # [N, T, K]
+    event_mask = state["event_mask"]  # [N, T, K]
+    K = event_mask.shape[-1]
     event_times = time.expand(-1, -1, K)  # [N, T, K]
     event_times = event_times.masked_fill(~event_mask, torch.inf)
     reversed_ = torch.flip(event_times, dims=[1])
@@ -317,6 +377,11 @@ def multi_event(
 
 def discretize_risk(state: RiskIndicatorState, boundaries: Tensor) -> DiscreteRiskState:
     """Discretize continuous event times into interval bins.
+
+    The combined encoding is designed for discrete failure time NLL losses
+    (DeepHit-style).  For piecewise exponential losses (MOTOR/PEANN-style),
+    use the raw ``event_time`` and ``indicator`` tensors to construct the
+    piecewise-exponential inputs separately.
 
     Parameters
     ----------

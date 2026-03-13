@@ -177,7 +177,7 @@ def random_effects_covariance(
 
     See Also
     --------
-    random_effects : Add U*gamma to the linear predictor using this covariance.
+    random_effects : Add Z*gamma to the linear predictor using this covariance.
 
     Notes
     -----

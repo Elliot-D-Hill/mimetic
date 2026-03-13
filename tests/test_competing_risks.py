@@ -1,7 +1,6 @@
 import torch
 
-from mimetic import CompetingRisksStep, Simulation
-
+from mimetic import CompetingRisksStep, IndependentEventsStep, Simulation
 
 K = 3
 N = 16
@@ -128,3 +127,83 @@ def test_competing_risks_full_chain() -> None:
     assert "indicator" in data.keys()
     assert "discrete_event_time" in data.keys()
     assert data["discrete_event_time"].shape == (N, T, K, 3)
+
+
+def test_competing_risks_event_mask_one_hot() -> None:
+    """competing_risks event_mask is one-hot (exactly one risk per timepoint).
+
+    Tests: backward compat — competing_risks now carries event_mask.
+    """
+    data = _cr_state().data
+    assert data["event_mask"].shape == (N, T, K)
+    assert data["event_mask"].dtype == torch.bool
+    assert (data["event_mask"].sum(dim=-1) == 1).all()
+
+
+# ---------------------------------------------------------------------------
+# Independent events
+# ---------------------------------------------------------------------------
+
+
+def _ie_state() -> IndependentEventsStep:
+    """Helper: build an independent events state with K=3."""
+    torch.manual_seed(42)
+    return Simulation(N, T, P).linear(K).independent_events(prevalence=0.3)
+
+
+def test_independent_events_shapes() -> None:
+    """event_mask is [N, T, K] boolean.
+
+    Tests: output shape and dtype.
+    """
+    data = _ie_state().data
+    assert data["event_mask"].shape == (N, T, K)
+    assert data["event_mask"].dtype == torch.bool
+
+
+def test_independent_events_multilabel() -> None:
+    """At least some timepoints have >1 active risk (not single-winner).
+
+    Tests: multilabel property — with N=64, T=20, prevalence=0.5, the
+    probability of *every* timepoint having at most 1 event across K=3
+    risks is negligible.
+    """
+    torch.manual_seed(0)
+    data = Simulation(64, 20, P).linear(K).independent_events(prevalence=0.5).data
+    events_per_tp = data["event_mask"].sum(dim=-1)  # [N, T]
+    assert (events_per_tp > 1).any()
+
+
+def test_independent_events_prevalence_effect() -> None:
+    """Lower prevalence produces fewer events on average.
+
+    Tests: prevalence parameter controls event rate.
+    """
+    torch.manual_seed(7)
+    sim = Simulation(64, 20, P).linear(K)
+    low = sim.independent_events(prevalence=0.05).data["event_mask"].float().mean()
+    torch.manual_seed(7)
+    sim = Simulation(64, 20, P).linear(K)
+    high = sim.independent_events(prevalence=0.5).data["event_mask"].float().mean()
+    assert low < high
+
+
+def test_independent_events_multi_event_chain() -> None:
+    """Full chain: .independent_events().multi_event().discretize() produces correct shapes.
+
+    Tests: end-to-end multilabel pipeline.
+    """
+    torch.manual_seed(42)
+    boundaries = torch.tensor([0.0, 0.5, 1.0, 2.0])
+    J = len(boundaries) - 1
+    data = (
+        Simulation(N, T, P)
+        .linear(K)
+        .independent_events(prevalence=0.3)
+        .multi_event(horizon=5.0)
+        .discretize(boundaries)
+        .data
+    )
+    assert data["event_time"].shape == (N, T, K)
+    assert data["indicator"].shape == (N, T, K)
+    assert data["discrete_event_time"].shape == (N, T, K, J)

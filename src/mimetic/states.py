@@ -21,7 +21,7 @@ class PredictorState(TypedDict):
     X: Tensor  # [N, T, p]
     beta: Tensor  # [N, p, 1]
     gamma: NotRequired[Tensor]  # [N, q, 1]
-    U: NotRequired[Tensor]  # [N, T, q]
+    Z: NotRequired[Tensor]  # [N, T, q]
 
 
 class ObservedState(PredictorState):
@@ -95,7 +95,23 @@ class SurvivalState(CensoredState):
 # ---------------------------------------------------------------------------
 
 
-class CompetingRisksState(PredictorState):
+class EventProcessState(PredictorState):
+    """State after generating a per-risk event mask.
+
+    The mask can come from either :func:`independent_events`
+    (multi-hot, multilabel) or :func:`competing_risks`
+    (one-hot, multiclass).
+
+    See Also
+    --------
+    independent_events : Multilabel Bernoulli event process.
+    competing_risks : Single-winner Weibull event process.
+    """
+
+    event_mask: Tensor  # [N, T, K]
+
+
+class CompetingRisksState(EventProcessState):
     """State after sampling per-risk failure times from Weibull distributions.
 
     See Also
@@ -107,7 +123,7 @@ class CompetingRisksState(PredictorState):
     tokens: Tensor  # [N, T, 1]
 
 
-class RiskIndicatorState(CompetingRisksState):
+class RiskIndicatorState(EventProcessState):
     """State after encoding risk indicators and event times per risk.
 
     See Also
@@ -118,6 +134,8 @@ class RiskIndicatorState(CompetingRisksState):
 
     event_time: Tensor  # [N, T, K]
     indicator: Tensor  # [N, T, K]
+    failure_times: NotRequired[Tensor]  # [N, T, K] — present from competing_risks path
+    tokens: NotRequired[Tensor]  # [N, T, 1] — present from competing_risks path
 
 
 class DiscreteRiskState(RiskIndicatorState):

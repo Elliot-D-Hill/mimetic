@@ -26,6 +26,7 @@ from .states import (
     CensoredState,
     CompetingRisksState,
     DiscreteRiskState,
+    EventProcessState,
     EventTimeState,
     ObservedState,
     PredictorState,
@@ -38,6 +39,7 @@ from .survival import (
     competing_risks,
     discretize_risk,
     event_time,
+    independent_events,
     mixture_cure_censoring,
     multi_event,
     risk_indicators,
@@ -52,11 +54,22 @@ def _to_tensordict(state: Mapping[str, Any]) -> TensorDict:
     return TensorDict(dict(state), batch_size=[first.shape[0]])
 
 
+class _Step[T: Mapping[str, Any]]:
+    """Base for pipeline steps providing .data export."""
+
+    state: T
+
+    @property
+    def data(self) -> TensorDict:
+        """Export state as a TensorDict."""
+        return _to_tensordict(self.state)
+
+
 class Simulation:
     """Entry point for building synthetic datasets.
 
     Generates the linear predictor eta = X*beta on construction.
-    Call `.random_effects()` to upgrade to a GLMM: eta = X*beta + U*gamma.
+    Call `.random_effects()` to upgrade to a GLMM: eta = X*beta + Z*gamma.
     Then choose a response distribution (`.gaussian()`, `.bernoulli()`, etc.).
 
     Parameters
@@ -114,7 +127,7 @@ class Simulation:
         self,
         std: Sequence[float] | Tensor | float,
         correlation: Tensor | float = 0.0,
-        U: Tensor | None = None,
+        Z: Tensor | None = None,
         gamma: Tensor | None = None,
     ) -> Simulation:
         """Add random effects to the linear predictor.
@@ -124,7 +137,7 @@ class Simulation:
         random_effects : Functional equivalent.
         """
         return Simulation._from_state(
-            random_effects(self.state, std, correlation, U=U, gamma=gamma)
+            random_effects(self.state, std, correlation, Z=Z, gamma=gamma)
         )
 
     def activation(self, fn: Callable[[Tensor], Tensor]) -> Simulation:
@@ -161,7 +174,7 @@ class Simulation:
             mlp(self.state, hidden_features, fn, out_features)
         )
 
-    # --- Competing risks (branches from PredictorState) ---
+    # --- Event processes (branch from PredictorState) ---
 
     def competing_risks(self, shape: float | Tensor = 1.0) -> CompetingRisksStep:
         """Sample per-risk Weibull failure times.
@@ -171,6 +184,15 @@ class Simulation:
         competing_risks : Functional equivalent.
         """
         return CompetingRisksStep(competing_risks(self.state, shape))
+
+    def independent_events(self, prevalence: float = 0.1) -> IndependentEventsStep:
+        """Generate multilabel event mask via independent Bernoulli draws.
+
+        See Also
+        --------
+        independent_events : Functional equivalent.
+        """
+        return IndependentEventsStep(independent_events(self.state, prevalence))
 
     # --- Response distributions (choose one) ---
 
@@ -229,15 +251,10 @@ class Simulation:
 
 
 @dataclass(frozen=True)
-class ResponseStep:
+class ResponseStep(_Step[ObservedState]):
     """Observed response ready for tokenization or survival analysis."""
 
     state: ObservedState
-
-    @property
-    def data(self) -> TensorDict:
-        """Export state as a TensorDict."""
-        return _to_tensordict(self.state)
 
     def tokenize(
         self, vocab_size: int = 1000, concentration: float = 1.0
@@ -261,15 +278,10 @@ class ResponseStep:
 
 
 @dataclass(frozen=True)
-class DiscreteResponseStep:
+class DiscreteResponseStep(_Step[ObservedState]):
     """Discrete observed response ready for tokenization or survival analysis."""
 
     state: ObservedState
-
-    @property
-    def data(self) -> TensorDict:
-        """Export state as a TensorDict."""
-        return _to_tensordict(self.state)
 
     def tokenize(
         self, vocab_size: int = 1000, concentration: float = 1.0
@@ -293,15 +305,10 @@ class DiscreteResponseStep:
 
 
 @dataclass(frozen=True)
-class TokenizedStep:
+class TokenizedStep(_Step[TokenizedState]):
     """Tokenized response ready for survival analysis."""
 
     state: TokenizedState
-
-    @property
-    def data(self) -> TensorDict:
-        """Export state as a TensorDict."""
-        return _to_tensordict(self.state)
 
     def event_time(self) -> EventTimeStep:
         """Sample an exponential event time.
@@ -314,15 +321,10 @@ class TokenizedStep:
 
 
 @dataclass(frozen=True)
-class EventTimeStep:
+class EventTimeStep(_Step[EventTimeState]):
     """Event time ready for censoring."""
 
     state: EventTimeState
-
-    @property
-    def data(self) -> TensorDict:
-        """Export state as a TensorDict."""
-        return _to_tensordict(self.state)
 
     def censor_time(self) -> CensoredStep:
         """Sample a uniform censor time.
@@ -349,15 +351,10 @@ class DiscreteEventTimeStep(EventTimeStep):
 
 
 @dataclass(frozen=True)
-class CensoredStep:
+class CensoredStep(_Step[CensoredState]):
     """Censored event ready for survival indicator computation."""
 
     state: CensoredState
-
-    @property
-    def data(self) -> TensorDict:
-        """Export state as a TensorDict."""
-        return _to_tensordict(self.state)
 
     def survival_indicators(self) -> SurvivalStep:
         """Compute event and censoring indicators.
@@ -370,32 +367,38 @@ class CensoredStep:
 
 
 @dataclass(frozen=True)
-class SurvivalStep:
+class SurvivalStep(_Step[SurvivalState]):
     """Terminal survival state with event indicators."""
 
     state: SurvivalState
 
-    @property
-    def data(self) -> TensorDict:
-        """Export state as a TensorDict."""
-        return _to_tensordict(self.state)
-
 
 # ---------------------------------------------------------------------------
-# Competing risks steps
+# Event process steps
 # ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True)
-class CompetingRisksStep:
+class IndependentEventsStep(_Step[EventProcessState]):
+    """Multilabel event mask ready for suffix-minimum encoding."""
+
+    state: EventProcessState
+
+    def multi_event(self, horizon: float | Tensor | None = None) -> RiskIndicatorStep:
+        """Compute per-risk TTE via suffix-minimum.
+
+        See Also
+        --------
+        multi_event : Functional equivalent.
+        """
+        return RiskIndicatorStep(multi_event(self.state, horizon))
+
+
+@dataclass(frozen=True)
+class CompetingRisksStep(_Step[CompetingRisksState]):
     """Competing risks ready for indicator encoding."""
 
     state: CompetingRisksState
-
-    @property
-    def data(self) -> TensorDict:
-        """Export state as a TensorDict."""
-        return _to_tensordict(self.state)
 
     def risk_indicators(self) -> RiskIndicatorStep:
         """One-hot encode the winning risk.
@@ -417,15 +420,10 @@ class CompetingRisksStep:
 
 
 @dataclass(frozen=True)
-class RiskIndicatorStep:
+class RiskIndicatorStep(_Step[RiskIndicatorState]):
     """Risk indicators ready for discretization."""
 
     state: RiskIndicatorState
-
-    @property
-    def data(self) -> TensorDict:
-        """Export state as a TensorDict."""
-        return _to_tensordict(self.state)
 
     def discretize(self, boundaries: Tensor) -> DiscreteRiskStep:
         """Discretize event times into interval bins.
@@ -438,12 +436,7 @@ class RiskIndicatorStep:
 
 
 @dataclass(frozen=True)
-class DiscreteRiskStep:
+class DiscreteRiskStep(_Step[DiscreteRiskState]):
     """Terminal discrete competing-risks state."""
 
     state: DiscreteRiskState
-
-    @property
-    def data(self) -> TensorDict:
-        """Export state as a TensorDict."""
-        return _to_tensordict(self.state)

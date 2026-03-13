@@ -206,9 +206,9 @@ def test_simulation_data_accessible_at_any_stage() -> None:
 
 
 def test_simulation_without_random_effects() -> None:
-    """Pipeline works without .random_effects(); gamma and U are absent.
+    """Pipeline works without .random_effects(); gamma and Z are absent.
 
-    Tests: minimal PredictorState has eta, X, beta but no gamma, U.
+    Tests: minimal PredictorState has eta, X, beta but no gamma, Z.
     """
     num_samples = 16
     num_timepoints = 6
@@ -218,13 +218,13 @@ def test_simulation_without_random_effects() -> None:
     assert data["X"].shape == (num_samples, num_timepoints, num_features)
     assert data["beta"].shape == (num_samples, num_features, 1)
     assert "gamma" not in data.keys()
-    assert "U" not in data.keys()
+    assert "Z" not in data.keys()
 
 
-def test_general_q3_auto_U() -> None:
-    """q=3 random effects auto-generates polynomial U and produces correct shapes.
+def test_general_q3_auto_Z() -> None:
+    """q=3 random effects auto-generates polynomial Z and produces correct shapes.
 
-    Tests: Vandermonde basis for q=3 gives correct gamma, eta, X, U shapes.
+    Tests: Vandermonde basis for q=3 gives correct gamma, eta, X, Z shapes.
     """
     num_samples = 32
     num_timepoints = 8
@@ -238,7 +238,7 @@ def test_general_q3_auto_U() -> None:
     assert data["gamma"].shape == (num_samples, q, 1)
     assert data["eta"].shape == (num_samples, num_timepoints, 1)
     assert data["X"].shape == (num_samples, num_timepoints, num_features)
-    assert data["U"].shape == (num_samples, num_timepoints, q)
+    assert data["Z"].shape == (num_samples, num_timepoints, q)
 
 
 def test_activation_applies_transform() -> None:
@@ -324,8 +324,8 @@ def test_user_supplied_X_and_beta() -> None:
     )
 
 
-def test_user_supplied_U_and_gamma() -> None:
-    """User-supplied U and gamma are used as-is in random effects.
+def test_user_supplied_Z_and_gamma() -> None:
+    """User-supplied Z and gamma are used as-is in random effects.
 
     Tests: override path for random-effects tensors, tensors stored unchanged.
     """
@@ -333,14 +333,14 @@ def test_user_supplied_U_and_gamma() -> None:
     num_samples = 8
     num_timepoints = 4
     q = 2
-    U = torch.ones(num_samples, num_timepoints, q)
+    Z = torch.ones(num_samples, num_timepoints, q)
     gamma = torch.full((num_samples, q, 1), 0.25)
     data = (
         Simulation(num_samples, num_timepoints, 3)
-        .random_effects(std=[1.0, 0.5], U=U, gamma=gamma)
+        .random_effects(std=[1.0, 0.5], Z=Z, gamma=gamma)
         .data
     )
-    assert torch.equal(data["U"], U)
+    assert torch.equal(data["Z"], Z)
     assert torch.equal(data["gamma"], gamma)
 
 

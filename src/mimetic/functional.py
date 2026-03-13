@@ -299,12 +299,12 @@ def random_effects(
     state: PredictorState,
     std: Sequence[float] | Tensor | float,
     correlation: Tensor | float = 0.0,
-    U: Tensor | None = None,
+    Z: Tensor | None = None,
     gamma: Tensor | None = None,
 ) -> PredictorState:
-    """Add random effects U*gamma to the linear predictor.
+    """Add random effects Z*gamma to the linear predictor.
 
-    Upgrades eta = X*beta to eta = X*beta + U*gamma where U is a
+    Upgrades eta = X*beta to eta = X*beta + Z*gamma where Z is a
     Vandermonde (polynomial) basis by default.
 
     Parameters
@@ -316,7 +316,7 @@ def random_effects(
     correlation
         Off-diagonal correlation. Scalar gives compound symmetry;
         matrix gives a user-provided [q, q] correlation matrix.
-    U
+    Z
         Random-effects design matrix [N, T, q]; Vandermonde basis if omitted.
     gamma
         Random-effects coefficients [N, q, 1]; sampled from MVN(0, Q)
@@ -326,7 +326,7 @@ def random_effects(
     -------
     PredictorState
         Updates ``eta`` [N, T, 1] and adds ``gamma`` [N, q, 1],
-        ``U`` [N, T, q].
+        ``Z`` [N, T, q].
 
     See Also
     --------
@@ -335,14 +335,14 @@ def random_effects(
 
     Notes
     -----
-    Implements Fahrmeir et al. [1]_, Eq. 7.11:
+    Implements Laird & Ware (1982):
 
-    .. math:: \\eta = X \\beta + U \\gamma, \\quad \\gamma \\sim N(0, Q)
+    .. math:: \\eta = X \\beta + Z \\gamma, \\quad \\gamma \\sim N(0, Q)
 
     References
     ----------
-    .. [1] Fahrmeir, L., Kneib, T., Lang, S., & Marx, B. (2013).
-       *Regression*. Springer.
+    .. [1] Laird, N. M., & Ware, J. H. (1982). Random-effects models for
+       longitudinal data. *Biometrics*, 38(4), 963–974.
 
     Examples
     --------
@@ -351,23 +351,23 @@ def random_effects(
     >>> state["gamma"].shape
     torch.Size([2, 2, 1])
     """
-    num_samples, num_timepoints, _ = state["eta"].shape
+    num_samples = state["eta"].shape[0]
     s = torch.atleast_1d(torch.as_tensor(std, dtype=torch.float32))
     q = len(s)
     if gamma is None:
         Q = random_effects_covariance(std, correlation)  # [q, q]
         mvn = dist.MultivariateNormal(torch.zeros(q), Q)
         gamma = mvn.sample((num_samples,)).unsqueeze(-1)  # [N, q, 1]
-    if U is None:
+    if Z is None:
         t = state["time"].squeeze(-1)  # [N, T]
         t_centered = t - t.mean(dim=1, keepdim=True)  # [N, T]
         powers = arange(q, dtype=torch.float32)  # [q]
-        U = t_centered.unsqueeze(-1) ** powers  # [N, T, q]
-    random_effect = torch.bmm(U, gamma)  # [N, T, 1]
+        Z = t_centered.unsqueeze(-1) ** powers  # [N, T, q]
+    random_effect = torch.bmm(Z, gamma)  # [N, T, 1]
     result = state.copy()
     result["eta"] = state["eta"] + random_effect  # [N, T, 1]
     result["gamma"] = gamma
-    result["U"] = U
+    result["Z"] = Z
     return result
 
 

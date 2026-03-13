@@ -31,7 +31,7 @@ uv sync --dev
 
 `Simulation` provides a fluent interface for building synthetic datasets.
 Construction builds the linear predictor (eta = Xβ); call `.random_effects()`
-to upgrade to a mixed model (eta = Xβ + Uγ). Then choose a response
+to upgrade to a mixed model (eta = Xβ + Zγ). Then choose a response
 distribution: `.gaussian()`, `.bernoulli()`, `.poisson()`, etc.
 
 ### Gaussian regression
@@ -51,7 +51,7 @@ print(data)
 ```text
 TensorDict(
     fields={
-        U: Tensor(shape=torch.Size([1024, 10, 2]), ...),
+        Z: Tensor(shape=torch.Size([1024, 10, 2]), ...),
         X: Tensor(shape=torch.Size([1024, 10, 8]), ...),
         beta: Tensor(shape=torch.Size([1024, 8, 1]), ...),
         eta: Tensor(shape=torch.Size([1024, 10, 1]), ...),
@@ -80,7 +80,7 @@ print(data)
 ```text
 TensorDict(
     fields={
-        U: Tensor(shape=torch.Size([1024, 10, 2]), ...),
+        Z: Tensor(shape=torch.Size([1024, 10, 2]), ...),
         X: Tensor(shape=torch.Size([1024, 10, 8]), ...),
         beta: Tensor(shape=torch.Size([1024, 8, 1]), ...),
         eta: Tensor(shape=torch.Size([1024, 10, 1]), ...),
@@ -118,7 +118,7 @@ print(data)
 ```text
 TensorDict(
     fields={
-        U: Tensor(shape=torch.Size([1024, 10, 2]), ...),
+        Z: Tensor(shape=torch.Size([1024, 10, 2]), ...),
         X: Tensor(shape=torch.Size([1024, 10, 8]), ...),
         beta: Tensor(shape=torch.Size([1024, 8, 1]), ...),
         censor_time: Tensor(shape=torch.Size([1024, 1, 1]), ...),
@@ -138,7 +138,7 @@ TensorDict(
 ### Typical outputs
 
 - `eta` (linear predictor = Xβ or Xβ + Uγ), `X` (design matrix), `beta` (fixed-effects coefficients)
-- `gamma` (random effects) and `U` (random-effects design matrix) — present only after `.random_effects()`
+- `gamma` (random effects) and `Z` (random-effects design matrix) — present only after `.random_effects()`
 - `y` (response — continuous for Gaussian, counts for Poisson, binary for Bernoulli, categorical label for Categorical/Ordinal)
 - `mu` (conditional mean h(eta) — identity for Gaussian, exp for Poisson, sigmoid for Bernoulli, softmax for Categorical)
 - `noise` (residual error, Gaussian only)

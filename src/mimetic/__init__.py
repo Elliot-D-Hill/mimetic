@@ -26,6 +26,7 @@ from .simulation import (
     DiscreteResponseStep,
     DiscreteRiskStep,
     EventTimeStep,
+    IndependentEventsStep,
     ResponseStep,
     RiskIndicatorStep,
     Simulation,
@@ -36,6 +37,7 @@ from .states import (
     CensoredState,
     CompetingRisksState,
     DiscreteRiskState,
+    EventProcessState,
     EventTimeState,
     ObservedState,
     PredictorState,
@@ -48,6 +50,7 @@ from .survival import (
     competing_risks,
     discretize_risk,
     event_time,
+    independent_events,
     mixture_cure_censoring,
     multi_event,
     risk_indicators,
@@ -88,18 +91,21 @@ __all__ = [
     "event_time",
     "mixture_cure_censoring",
     "survival_indicators",
-    # Functional — competing risks
+    # Functional — competing risks / event processes
     "competing_risks",
+    "independent_events",
     "risk_indicators",
     "multi_event",
     "discretize_risk",
-    # States — competing risks
+    # States — event processes / competing risks
+    "EventProcessState",
     "CompetingRisksState",
     "RiskIndicatorState",
     "DiscreteRiskState",
     # Simulation steps
     "CensoredStep",
     "CompetingRisksStep",
+    "IndependentEventsStep",
     "DiscreteEventTimeStep",
     "DiscreteResponseStep",
     "DiscreteRiskStep",
