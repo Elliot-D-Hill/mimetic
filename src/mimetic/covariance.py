@@ -29,9 +29,9 @@ class LKJCovariance:
 ResidualCovarianceSpec: TypeAlias = IsotropicCovariance | AR1Covariance | LKJCovariance
 
 
-def isotropic_covariance(size: int) -> Tensor:
+def isotropic_covariance(num_timepoints: int) -> Tensor:
     """Identity covariance Σ = I (no temporal correlation)."""
-    return torch.eye(size)  # [size, size]
+    return torch.eye(num_timepoints)  # [T, T]
 
 
 def ar1_covariance(correlation: float, num_timepoints: int) -> Tensor:
@@ -49,33 +49,36 @@ def ar1_covariance(correlation: float, num_timepoints: int) -> Tensor:
     return correlation**diff  # [T, T]
 
 
-def lkj_covariance(concentration: float, size: int) -> Tensor:
+def lkj_covariance(concentration: float, num_timepoints: int) -> Tensor:
     """Sample an unstructured correlation matrix from LKJ distribution.
 
     Args:
         concentration: Concentration parameter. concentration=1 gives uniform over correlation matrices.
-        size: Dimension of the correlation matrix.
+        num_timepoints: Number of time points (dimension of the correlation matrix).
     """
-    L = dist.LKJCholesky(size, concentration=concentration).sample()  # [size, size]
-    return L @ L.T  # [size, size]
+    lkj = dist.LKJCholesky(num_timepoints, concentration=concentration)
+    L: Tensor = lkj.sample()  # [T, T]
+    return L @ L.T  # [T, T]
 
 
 def random_effects_covariance(
-    stds: Sequence[float], correlation: Tensor | float = 0.0
+    std: Sequence[float] | Tensor | float, correlation: Tensor | float = 0.0
 ) -> Tensor:
     """Build the random-effects covariance Q = S R S (Fahrmeir et al., Eq. 7.11).
 
     Args:
-        stds: Standard deviations for each random effect; len determines q.
-        correlation: Off-diagonal correlation. Float gives compound symmetry
-            R = I(1−ρ) + J·ρ. Tensor gives a user-provided [q, q] correlation matrix.
+        std: Standard deviations for each random effect; len determines q.
+        correlation: Off-diagonal correlation. Scalar gives compound symmetry
+            R = I(1−ρ) + J·ρ. Matrix gives a user-provided [q, q] correlation matrix.
     """
-    q = len(stds)
-    S = torch.diag(torch.tensor(stds, dtype=torch.float32))  # [q, q]
-    if isinstance(correlation, Tensor):
-        R = correlation  # [q, q]
+    s: Tensor = torch.atleast_1d(torch.as_tensor(std, dtype=torch.float32))
+    q = s.shape[0]
+    S = torch.diag(s)  # [q, q]
+    correlation = torch.as_tensor(correlation, dtype=torch.float32)
+    if correlation.ndim == 0:
+        R = torch.eye(q) * (1 - correlation) + correlation  # [q, q]
     else:
-        R = torch.eye(q) * (1 - correlation) + torch.full((q, q), correlation)  # [q, q]
+        R = correlation  # [q, q]
     return S @ R @ S  # [q, q]
 
 

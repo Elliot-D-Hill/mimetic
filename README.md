@@ -5,8 +5,8 @@ time-to-event modeling with PyTorch and TensorDict.
 
 It supports:
 
-- regression and classification targets from latent subject structure
-- repeated observations with temporal covariance
+- regression, classification, and count targets from latent subject structure
+- repeated observations with temporal covariance (Gaussian family)
 - grouped data with arbitrary random effects (intercepts, slopes, etc.)
 - survival, mixture-cure, competing-risk, and multi-event outcomes
 - tokenized sequence views of the same trajectories
@@ -30,18 +30,19 @@ uv sync --dev
 ## Quick Start
 
 `Simulation` provides a fluent interface for building synthetic datasets.
-Construction generates fixed-effects observations (y = Xβ + ε); call
-`.random_effects()` to upgrade to a mixed model (y = Xβ + Uγ + ε).
+Construction builds the linear predictor (eta = Xβ); call `.random_effects()`
+to upgrade to a mixed model (eta = Xβ + Uγ). Then choose a response
+distribution: `.gaussian()`, `.bernoulli()`, `.poisson()`, etc.
 
-### Binary classification
+### Gaussian regression
 
 ```python
 from mimetic import Simulation
 
 data = (
-    Simulation(num_samples=1024, num_timepoints=10, num_features=8, std=0.25)
-    .random_effects(stds=[1.0, 0.1])
-    .logistic(prevalence=0.3)
+    Simulation(num_samples=1024, num_timepoints=10, num_features=8)
+    .random_effects(std=[1.0, 0.1])
+    .gaussian(std=0.25)
     .data
 )
 print(data)
@@ -55,8 +56,36 @@ TensorDict(
         beta: Tensor(shape=torch.Size([1024, 8, 1]), ...),
         eta: Tensor(shape=torch.Size([1024, 10, 1]), ...),
         gamma: Tensor(shape=torch.Size([1024, 2, 1]), ...),
-        label: Tensor(shape=torch.Size([1024, 10, 1]), ...),
-        probability: Tensor(shape=torch.Size([1024, 10, 1]), ...),
+        mu: Tensor(shape=torch.Size([1024, 10, 1]), ...),
+        noise: Tensor(shape=torch.Size([1024, 10, 1]), ...),
+        time: Tensor(shape=torch.Size([1024, 10, 1]), ...),
+        y: Tensor(shape=torch.Size([1024, 10, 1]), ...)},
+    batch_size=torch.Size([1024]), ...)
+```
+
+### Binary classification
+
+```python
+from mimetic import Simulation
+
+data = (
+    Simulation(num_samples=1024, num_timepoints=10, num_features=8)
+    .random_effects(std=[1.0, 0.1])
+    .bernoulli(prevalence=0.3)
+    .data
+)
+print(data)
+```
+
+```text
+TensorDict(
+    fields={
+        U: Tensor(shape=torch.Size([1024, 10, 2]), ...),
+        X: Tensor(shape=torch.Size([1024, 10, 8]), ...),
+        beta: Tensor(shape=torch.Size([1024, 8, 1]), ...),
+        eta: Tensor(shape=torch.Size([1024, 10, 1]), ...),
+        gamma: Tensor(shape=torch.Size([1024, 2, 1]), ...),
+        mu: Tensor(shape=torch.Size([1024, 10, 1]), ...),
         time: Tensor(shape=torch.Size([1024, 10, 1]), ...),
         y: Tensor(shape=torch.Size([1024, 10, 1]), ...)},
     batch_size=torch.Size([1024]), ...)
@@ -65,18 +94,16 @@ TensorDict(
 ### Mixture-cure survival with tokenized sequences
 
 ```python
-from mimetic import AR1Covariance, Simulation
+from mimetic import Simulation
 
 data = (
     Simulation(
         num_samples=1024,
         num_timepoints=10,
         num_features=8,
-        std=0.25,
-        covariance=AR1Covariance(correlation=0.8),
     )
-    .random_effects(stds=[1.0, 0.1])
-    .logistic(prevalence=0.3)
+    .random_effects(std=[1.0, 0.1])
+    .bernoulli(prevalence=0.3)
     .tokenize(vocab_size=256)
     .event_time()
     .mixture_cure()
@@ -99,9 +126,8 @@ TensorDict(
         event_time: Tensor(shape=torch.Size([1024, 1, 1]), ...),
         gamma: Tensor(shape=torch.Size([1024, 2, 1]), ...),
         indicator: Tensor(shape=torch.Size([1024, 1, 1]), ...),
-        label: Tensor(shape=torch.Size([1024, 10, 1]), ...),
+        mu: Tensor(shape=torch.Size([1024, 10, 1]), ...),
         observed_time: Tensor(shape=torch.Size([1024, 1, 1]), ...),
-        probability: Tensor(shape=torch.Size([1024, 10, 1]), ...),
         time: Tensor(shape=torch.Size([1024, 10, 1]), ...),
         time_to_event: Tensor(shape=torch.Size([1024, 10, 1]), ...),
         tokens: Tensor(shape=torch.Size([1024, 10, 1]), ...),
@@ -111,25 +137,29 @@ TensorDict(
 
 ### Typical outputs
 
-- `y` (response), `X` (design matrix), `beta` (fixed-effects coefficients), `eta` (linear predictor, Xβ or Xβ + Uγ)
+- `eta` (linear predictor = Xβ or Xβ + Uγ), `X` (design matrix), `beta` (fixed-effects coefficients)
 - `gamma` (random effects) and `U` (random-effects design matrix) — present only after `.random_effects()`
+- `y` (response — continuous for Gaussian, counts for Poisson, binary for Bernoulli, categorical label for Categorical/Ordinal)
+- `mu` (conditional mean h(eta) — identity for Gaussian, exp for Poisson, sigmoid for Bernoulli, softmax for Categorical)
+- `noise` (residual error, Gaussian only)
 - `tokens` (when `.tokenize()` is called, derived from `X`)
-- `probability` and `label` for classification tasks
 - `time`, `event_time`, `censor_time`, `indicator`, `observed_time`,
   `time_to_event` for survival tasks
 
 ## Pipeline stages
 
-`Simulation()` creates observations immediately. From there, optionally add
-`.random_effects()`, then branch by task:
+`Simulation()` builds the linear predictor. From there, optionally add
+`.random_effects()` and predictor transforms, then choose a response
+distribution to sample observations:
 
 | Stage | Methods | Description |
 | ------- | --------- | ------------- |
-| Simulation | `.random_effects()`, `.observation_time()`, `.logistic()`, `.multiclass()`, `.ordinal()`, `.event_time()`, `.tokenize()` | Observations ready for optional random effects, labeling, or tokenization |
-| Tokenized | `.logistic()`, `.multiclass()`, `.ordinal()`, `.event_time()` | Tokenized trajectories ready for labeling |
-| Labeled | `.event_time()`, `.tokenize()` | Classification labels assigned |
+| Simulation | `.random_effects()`, `.activation()`, `.linear()`, `.mlp()`, `.observation_time()`, `.gaussian()`, `.poisson()`, `.bernoulli()`, `.categorical()`, `.ordinal()` | Linear predictor ready for transforms and response distribution |
+| Response | `.tokenize()`, `.event_time()` | Response sampled (continuous families) |
+| DiscreteResponse | `.tokenize()`, `.event_time()` | Response sampled (discrete families); enables mixture-cure via event time |
+| Tokenized | `.event_time()` | Tokenized trajectories |
 | EventTime | `.observation_time()`, `.censor_time()` | Survival event times generated |
-| LabeledEventTime | `.mixture_cure()`, `.observation_time()`, `.censor_time()` | Survival from labeled path (enables cure fraction) |
+| DiscreteEventTime | `.mixture_cure()`, `.observation_time()`, `.censor_time()` | Discrete event time (enables cure fraction) |
 | Censored | `.survival_indicators()` | Administrative censoring applied |
 
 ## Notes on Structure
@@ -137,6 +167,8 @@ TensorDict(
 - `src/mimetic/simulation.py` — fluent `Simulation` interface
 - `src/mimetic/functional.py` — reusable building-block functions
 - `src/mimetic/covariance.py` — covariance construction (random-effects and residual)
+- `src/mimetic/survival.py` — survival analysis functions
+- `src/mimetic/states.py` — TypedDict state definitions for the pipeline
 
 ## Development
 
