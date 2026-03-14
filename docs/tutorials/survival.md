@@ -4,8 +4,6 @@ The survival pipeline builds on a response distribution, adding event times,
 censoring, and per-timepoint indicators. The chain is:
 response -> `event_time` -> `censor_time` -> `survival_indicators`.
 
-All examples below use `N=1`, `T=5`, `P=2`, `torch.manual_seed(0)`.
-
 ## Event time
 
 An exponential event time is sampled per subject, parameterized by the
@@ -13,7 +11,7 @@ mean of `eta` across timepoints.
 
 ```python
 data = (
-    Simulation(1, 5, 2)
+    Simulation(20, 8, 3)
     .gaussian(std=0.5)
     .event_time()
     .data
@@ -21,7 +19,13 @@ data = (
 ```
 
 ```text
-event_time: 0.88
+TensorDict(
+    fields={
+        ...
+        event_time: Tensor([20, 1, 1], ...),
+        mu: Tensor([20, 8, 1], ...),
+        y: Tensor([20, 8, 1], ...)},
+    batch_size=[20])
 ```
 
 ## Censor time
@@ -32,7 +36,7 @@ administrative censoring mechanism.
 
 ```python
 data = (
-    Simulation(1, 5, 2)
+    Simulation(20, 8, 3)
     .gaussian(std=0.5)
     .event_time()
     .censor_time()
@@ -41,8 +45,14 @@ data = (
 ```
 
 ```text
-event_time:  1.93
-censor_time: 2.79
+TensorDict(
+    fields={
+        ...
+        censor_time: Tensor([20, 1, 1], ...),
+        event_time: Tensor([20, 1, 1], ...),
+        mu: Tensor([20, 8, 1], ...),
+        y: Tensor([20, 8, 1], ...)},
+    batch_size=[20])
 ```
 
 ## Survival indicators
@@ -53,7 +63,7 @@ vector gives each timepoint's distance to the observed time.
 
 ```python
 data = (
-    Simulation(1, 5, 2)
+    Simulation(20, 8, 3)
     .gaussian(std=0.5)
     .event_time()
     .censor_time()
@@ -62,18 +72,19 @@ data = (
 )
 ```
 
-```{eval-rst}
-.. plot:: _plots/survival_timeline.py
+```text
+TensorDict(
+    fields={
+        ...
+        censor_time: Tensor([20, 1, 1], ...),
+        event_time: Tensor([20, 1, 1], ...),
+        indicator: Tensor([20, 1, 1], ...),
+        observed_time: Tensor([20, 1, 1], ...),
+        time_to_event: Tensor([20, 8, 1], ...),
+        y: Tensor([20, 8, 1], ...)},
+    batch_size=[20])
 ```
 
-```text
-event_time:    0.58
-censor_time:   3.19
-observed_time: 0.58
-
-# 1 = event observed, 0 = censored
-indicator: 1.
-
-# time from each observation to the event
-time_to_event: [0.58, -0.42, -1.42, -2.42, -3.42]
+```{eval-rst}
+.. plot:: _plots/survival_timeline.py
 ```

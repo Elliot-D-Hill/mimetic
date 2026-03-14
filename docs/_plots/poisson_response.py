@@ -1,18 +1,20 @@
 import torch
 import matplotlib.pyplot as plt
+from mimetic import Simulation
 
 torch.manual_seed(0)
 
-mu = torch.tensor([0.76, 3.27, 0.31, 0.54, 0.38])
-y = torch.tensor([2.0, 4.0, 1.0, 0.0, 0.0])
-time = torch.arange(5)
+data = Simulation(200, 8, 3).poisson().data
+mu = data["mu"][:, :, 0]  # [N, T]
+y = data["y"][:, :, 0]  # [N, T]
 
-width = 0.35
-fig, ax = plt.subplots(figsize=(6, 3))
-ax.bar(time - width / 2, mu.numpy(), width, label="mu (log link)")
-ax.bar(time + width / 2, y.numpy(), width, label="y (count)")
-ax.set_xlabel("Timepoint")
-ax.set_ylabel("Value")
-ax.set_title("Poisson response")
-ax.legend()
+fig, axes = plt.subplots(1, 2, figsize=(6, 3))
+axes[0].hist(mu.flatten(), bins=30, color="steelblue", edgecolor="white")
+axes[0].set_xlabel("mu")
+axes[0].set_title("Rate (log link)")
+axes[1].hist(
+    y.flatten(), bins=range(int(y.max()) + 2), color="tomato", edgecolor="white"
+)
+axes[1].set_xlabel("y")
+axes[1].set_title("Count")
 plt.tight_layout()

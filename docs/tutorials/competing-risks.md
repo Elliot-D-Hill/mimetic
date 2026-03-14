@@ -9,8 +9,6 @@ The pipeline starts from a K-dimensional predictor (via `.linear(K)`) and
 branches into several encoding strategies: first-failure indicators,
 suffix-minimum TTE, and discretized interval bins.
 
-All examples below use `N=1`, `T=5`, `K=3`, `torch.manual_seed(0)`.
-
 ## Competing risks
 
 Each column of `eta` [T, K] parameterizes one risk's Weibull scale.
@@ -19,36 +17,26 @@ one-hot encoding.
 
 ```python
 data = (
-    Simulation(1, 5, 2)
-    .linear(3)
+    Simulation(50, 8, 3)
+    .linear(4)
     .competing_risks()
     .data
 )
 ```
 
-```{eval-rst}
-.. plot:: _plots/failure_times_heatmap.py
+```text
+TensorDict(
+    fields={
+        ...
+        eta: Tensor([50, 8, 4], ...),
+        event_mask: Tensor([50, 8, 4], ...),
+        failure_times: Tensor([50, 8, 4], ...),
+        tokens: Tensor([50, 8, 1], ...)},
+    batch_size=[50])
 ```
 
-```text
-# Weibull draw per risk [T, K]
-failure_times:
-  [0.62, 0.07, 1.47]
-  [0.40, 0.41, 0.23]
-  [0.06, 0.69, 0.13]
-  [0.60, 0.57, 0.85]
-  [0.76, 0.23, 0.86]
-
-# argmin risk index [T]
-tokens: [1, 2, 0, 1, 1]
-
-# one-hot: single winner per timepoint [T, K]
-event_mask:
-  [0, 1, 0]
-  [0, 0, 1]
-  [1, 0, 0]
-  [0, 1, 0]
-  [0, 1, 0]
+```{eval-rst}
+.. plot:: _plots/failure_times_heatmap.py
 ```
 
 ## Independent events
@@ -59,24 +47,20 @@ a multi-hot `event_mask` instead of one-hot.
 
 ```python
 data = (
-    Simulation(1, 5, 2)
-    .linear(3)
+    Simulation(50, 8, 3)
+    .linear(4)
     .independent_events(prevalence=0.3)
     .data
 )
 ```
 
 ```text
-# multi-hot: multiple risks can fire per timepoint [T, K]
-# t=0: risks 0 and 2 fire
-# t=1: risks 0 and 1 fire
-# t=2: nothing fires
-event_mask:
-  [1, 0, 1]
-  [1, 1, 0]
-  [0, 0, 0]
-  [1, 0, 1]
-  [1, 1, 0]
+TensorDict(
+    fields={
+        ...
+        eta: Tensor([50, 8, 4], ...),
+        event_mask: Tensor([50, 8, 4], ...)},
+    batch_size=[50])
 ```
 
 ## Risk indicators
@@ -86,8 +70,8 @@ to all K columns, and the indicator marks which risk won.
 
 ```python
 data = (
-    Simulation(1, 5, 2)
-    .linear(3)
+    Simulation(50, 8, 3)
+    .linear(4)
     .competing_risks()
     .risk_indicators()
     .data
@@ -95,21 +79,13 @@ data = (
 ```
 
 ```text
-# min failure time, broadcast to all K columns [T, K]
-event_time:
-  [0.02, 0.02, 0.02]
-  [0.99, 0.99, 0.99]
-  [0.04, 0.04, 0.04]
-  [0.03, 0.03, 0.03]
-  [0.00, 0.00, 0.00]
-
-# one-hot winner [T, K]
-indicator:
-  [0., 0., 1.]
-  [0., 1., 0.]
-  [0., 1., 0.]
-  [0., 0., 1.]
-  [0., 1., 0.]
+TensorDict(
+    fields={
+        ...
+        event_time: Tensor([50, 8, 4], ...),
+        failure_times: Tensor([50, 8, 4], ...),
+        indicator: Tensor([50, 8, 4], ...)},
+    batch_size=[50])
 ```
 
 ## Multi-event
@@ -120,38 +96,26 @@ observation window receive the horizon ceiling.
 
 ```python
 data = (
-    Simulation(1, 5, 2)
-    .linear(3)
+    Simulation(50, 8, 3)
+    .linear(4)
     .competing_risks()
-    .multi_event(horizon=8.0)
+    .multi_event(horizon=10.0)
     .data
 )
+```
+
+```text
+TensorDict(
+    fields={
+        ...
+        event_time: Tensor([50, 8, 4], ...),
+        indicator: Tensor([50, 8, 4], ...)},
+    batch_size=[50])
 ```
 
 ```{eval-rst}
 .. plot:: _plots/multi_event_tte.py
 ```
-
-```text
-# TTE to next occurrence of each risk [T, K]
-event_time:
-  [8., 1., 3.]
-  [8., 1., 2.]
-  [8., 2., 1.]
-  [8., 1., 8.]
-  [8., 8., 8.]
-
-# 1 = event within horizon [T, K]
-indicator:
-  [0., 1., 1.]
-  [0., 1., 1.]
-  [0., 1., 1.]
-  [0., 1., 0.]
-  [0., 0., 0.]
-```
-
-Risk 0 never fires (no timepoint in `event_mask` had risk 0 as the
-winner), so its TTE is always at the horizon ceiling.
 
 ## Discretize risk
 
@@ -163,54 +127,21 @@ survival losses (DeepHit-style).
 ```python
 boundaries = torch.tensor([0.0, 2.0, 4.0, 8.0])
 data = (
-    Simulation(1, 5, 2)
-    .linear(3)
+    Simulation(50, 8, 3)
+    .linear(4)
     .competing_risks()
-    .multi_event(horizon=8.0)
+    .multi_event(horizon=10.0)
     .discretize(boundaries)
     .data
 )
 ```
 
 ```text
-event_time:
-  [2., 3., 1.]
-  [1., 2., 8.]
-  [8., 1., 8.]
-  [8., 1., 8.]
-  [8., 8., 8.]
-
-indicator:
-  [1., 1., 1.]
-  [1., 1., 0.]
-  [0., 1., 0.]
-  [0., 1., 0.]
-  [0., 0., 0.]
-
-# fractional exposure per interval [T, J]
-# bins: [0, 2), [2, 4), [4, 8)
-
-# risk 0 -- event at t=2: full exposure in [0,2), none after
-discrete_event_time[0]:
-  [1.00, 0.00, 0.00]
-  [0.50, 0.00, 0.00]
-  [1.00, 1.00, 1.00]
-  [1.00, 1.00, 1.00]
-  [1.00, 1.00, 1.00]
-
-# risk 1 -- event at t=3: full [0,2), half of [2,4)
-discrete_event_time[1]:
-  [0.00, 0.50, 0.00]
-  [1.00, 0.00, 0.00]
-  [0.50, 0.00, 0.00]
-  [0.50, 0.00, 0.00]
-  [1.00, 1.00, 1.00]
-
-# risk 2 -- event at t=1: half of [0,2)
-discrete_event_time[2]:
-  [0.50, 0.00, 0.00]
-  [1.00, 1.00, 1.00]
-  [1.00, 1.00, 1.00]
-  [1.00, 1.00, 1.00]
-  [1.00, 1.00, 1.00]
+TensorDict(
+    fields={
+        ...
+        discrete_event_time: Tensor([50, 8, 4, 3], ...),
+        event_time: Tensor([50, 8, 4], ...),
+        indicator: Tensor([50, 8, 4], ...)},
+    batch_size=[50])
 ```

@@ -5,8 +5,6 @@ mean `mu` through a link function, then samples an observation `y`.
 Each family targets a different data type: continuous, count, binary, or
 multi-class.
 
-All examples below use `N=1`, `T=5`, `P=2`, `torch.manual_seed(0)`.
-
 ## Gaussian
 
 The identity link passes `eta` through unchanged: `mu = eta`.
@@ -15,20 +13,27 @@ multivariate normal with standard deviation `std`.
 
 ```python
 data = (
-    Simulation(1, 5, 2)
+    Simulation(50, 8, 3)
     .gaussian(std=0.5)
     .data
 )
 ```
 
-```{eval-rst}
-.. plot:: _plots/gaussian_response.py
+```text
+TensorDict(
+    fields={
+        X: Tensor([50, 8, 3], ...),
+        beta: Tensor([50, 3, 1], ...),
+        eta: Tensor([50, 8, 1], ...),
+        mu: Tensor([50, 8, 1], ...),
+        noise: Tensor([50, 8, 1], ...),
+        time: Tensor([50, 8, 1], ...),
+        y: Tensor([50, 8, 1], ...)},
+    batch_size=[50])
 ```
 
-```text
-mu:    [-0.97,  1.40,  0.39, -0.09,  0.36]
-y:     [-1.40,  1.95, -0.14, -0.03,  0.07]
-noise: [-0.43,  0.55, -0.54,  0.06, -0.28]
+```{eval-rst}
+.. plot:: _plots/gaussian_response.py
 ```
 
 ## Poisson
@@ -38,19 +43,26 @@ Observations are integer counts drawn from a Poisson distribution.
 
 ```python
 data = (
-    Simulation(1, 5, 2)
+    Simulation(200, 8, 3)
     .poisson()
     .data
 )
 ```
 
-```{eval-rst}
-.. plot:: _plots/poisson_response.py
+```text
+TensorDict(
+    fields={
+        X: Tensor([200, 8, 3], ...),
+        beta: Tensor([200, 3, 1], ...),
+        eta: Tensor([200, 8, 1], ...),
+        mu: Tensor([200, 8, 1], ...),
+        time: Tensor([200, 8, 1], ...),
+        y: Tensor([200, 8, 1], ...)},
+    batch_size=[200])
 ```
 
-```text
-mu: [0.76, 3.27, 0.31, 0.54, 0.38]
-y:  [2.,   4.,   1.,   0.,   0.  ]
+```{eval-rst}
+.. plot:: _plots/poisson_response.py
 ```
 
 ## Bernoulli
@@ -61,19 +73,26 @@ base rates independently of the predictor's magnitude.
 
 ```python
 data = (
-    Simulation(1, 5, 2)
+    Simulation(200, 8, 3)
     .bernoulli(prevalence=0.3)
     .data
 )
 ```
 
-```{eval-rst}
-.. plot:: _plots/bernoulli_response.py
+```text
+TensorDict(
+    fields={
+        X: Tensor([200, 8, 3], ...),
+        beta: Tensor([200, 3, 1], ...),
+        eta: Tensor([200, 8, 1], ...),
+        mu: Tensor([200, 8, 1], ...),
+        time: Tensor([200, 8, 1], ...),
+        y: Tensor([200, 8, 1], ...)},
+    batch_size=[200])
 ```
 
-```text
-mu: [0.42, 0.21, 0.39, 0.83, 0.32]
-y:  [0.,   0.,   1.,   1.,   1.  ]
+```{eval-rst}
+.. plot:: _plots/bernoulli_response.py
 ```
 
 ## Categorical
@@ -84,28 +103,27 @@ probabilities, and a single class is sampled per timepoint.
 
 ```python
 data = (
-    Simulation(1, 5, 2)
-    .linear(3)
+    Simulation(200, 8, 3)
+    .linear(4)
     .categorical()
     .data
 )
 ```
 
-```{eval-rst}
-.. plot:: _plots/categorical_response.py
+```text
+TensorDict(
+    fields={
+        X: Tensor([200, 8, 3], ...),
+        beta: Tensor([200, 3, 1], ...),
+        eta: Tensor([200, 8, 4], ...),
+        mu: Tensor([200, 8, 4], ...),
+        time: Tensor([200, 8, 1], ...),
+        y: Tensor([200, 8, 1], ...)},
+    batch_size=[200])
 ```
 
-```text
-# softmax probabilities [T, K]
-mu:
-  [0.42, 0.06, 0.52]
-  [0.06, 0.90, 0.04]
-  [0.25, 0.53, 0.23]
-  [0.35, 0.29, 0.36]
-  [0.25, 0.51, 0.24]
-
-# sampled class index [T]
-y: [0, 1, 0, 0, 1]
+```{eval-rst}
+.. plot:: _plots/categorical_response.py
 ```
 
 ## Ordinal
@@ -116,24 +134,24 @@ adjacent cumulative probabilities, preserving the natural ordering.
 
 ```python
 data = (
-    Simulation(1, 5, 2)
+    Simulation(200, 8, 3)
     .ordinal(num_classes=4)
     .data
 )
 ```
 
-```{eval-rst}
-.. plot:: _plots/ordinal_response.py
+```text
+TensorDict(
+    fields={
+        X: Tensor([200, 8, 3], ...),
+        beta: Tensor([200, 3, 1], ...),
+        eta: Tensor([200, 8, 1], ...),
+        mu: Tensor([200, 8, 4], ...),
+        time: Tensor([200, 8, 1], ...),
+        y: Tensor([200, 8, 1], ...)},
+    batch_size=[200])
 ```
 
-```text
-# class probabilities [T, K]
-mu:
-  [0.21, 0.45, 0.28, 0.07]
-  [0.06, 0.26, 0.46, 0.23]
-  [0.01, 0.07, 0.32, 0.59]
-  [0.77, 0.19, 0.03, 0.01]
-  [0.22, 0.46, 0.26, 0.06]
-
-y: [1, 0, 3, 0, 2]
+```{eval-rst}
+.. plot:: _plots/ordinal_response.py
 ```
