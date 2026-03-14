@@ -8,11 +8,11 @@ Covariance
    :toctree: api/generated
    :nosignatures:
 
-   mimetic.AR1Covariance
-   mimetic.IsotropicCovariance
-   mimetic.LKJCovariance
-   mimetic.random_effects_covariance
-   mimetic.residual_covariance
+   simulacra.AR1Covariance
+   simulacra.IsotropicCovariance
+   simulacra.LKJCovariance
+   simulacra.random_effects_covariance
+   simulacra.residual_covariance
 
 States
 ------
@@ -21,16 +21,16 @@ States
    :toctree: api/generated
    :nosignatures:
 
-   mimetic.PredictorState
-   mimetic.EventTimeState
-   mimetic.CensoredState
-   mimetic.ObservedState
-   mimetic.SurvivalState
-   mimetic.TokenizedState
-   mimetic.EventProcessState
-   mimetic.CompetingRisksState
-   mimetic.RiskIndicatorState
-   mimetic.DiscreteRiskState
+   simulacra.PredictorState
+   simulacra.EventTimeState
+   simulacra.CensoredState
+   simulacra.ObservedState
+   simulacra.SurvivalState
+   simulacra.TokenizedState
+   simulacra.EventProcessState
+   simulacra.CompetingRisksState
+   simulacra.RiskIndicatorState
+   simulacra.DiscreteRiskState
 
 Predictor
 ---------
@@ -39,12 +39,12 @@ Predictor
    :toctree: api/generated
    :nosignatures:
 
-   mimetic.linear_predictor
-   mimetic.random_effects
-   mimetic.activation
-   mimetic.linear
-   mimetic.mlp
-   mimetic.observation_time
+   simulacra.linear_predictor
+   simulacra.random_effects
+   simulacra.activation
+   simulacra.linear
+   simulacra.mlp
+   simulacra.observation_time
 
 Response distributions
 ----------------------
@@ -53,12 +53,12 @@ Response distributions
    :toctree: api/generated
    :nosignatures:
 
-   mimetic.gaussian
-   mimetic.poisson
-   mimetic.bernoulli
-   mimetic.categorical
-   mimetic.ordinal
-   mimetic.tokens
+   simulacra.gaussian
+   simulacra.poisson
+   simulacra.bernoulli
+   simulacra.categorical
+   simulacra.ordinal
+   simulacra.tokens
 
 Survival
 --------
@@ -67,10 +67,10 @@ Survival
    :toctree: api/generated
    :nosignatures:
 
-   mimetic.event_time
-   mimetic.censor_time
-   mimetic.mixture_cure_censoring
-   mimetic.survival_indicators
+   simulacra.event_time
+   simulacra.censor_time
+   simulacra.mixture_cure_censoring
+   simulacra.survival_indicators
 
 Competing risks
 ---------------
@@ -79,11 +79,11 @@ Competing risks
    :toctree: api/generated
    :nosignatures:
 
-   mimetic.competing_risks
-   mimetic.independent_events
-   mimetic.risk_indicators
-   mimetic.multi_event
-   mimetic.discretize_risk
+   simulacra.competing_risks
+   simulacra.independent_events
+   simulacra.risk_indicators
+   simulacra.multi_event
+   simulacra.discretize_risk
 
 Simulation steps
 ----------------
@@ -92,15 +92,15 @@ Simulation steps
    :toctree: api/generated
    :nosignatures:
 
-   mimetic.Simulation
-   mimetic.ResponseStep
-   mimetic.DiscreteResponseStep
-   mimetic.TokenizedStep
-   mimetic.EventTimeStep
-   mimetic.CensoredStep
-   mimetic.SurvivalStep
-   mimetic.CompetingRisksStep
-   mimetic.IndependentEventsStep
-   mimetic.RiskIndicatorStep
-   mimetic.DiscreteRiskStep
-   mimetic.DiscreteEventTimeStep
+   simulacra.Simulation
+   simulacra.ResponseStep
+   simulacra.DiscreteResponseStep
+   simulacra.TokenizedStep
+   simulacra.EventTimeStep
+   simulacra.CensoredStep
+   simulacra.SurvivalStep
+   simulacra.CompetingRisksStep
+   simulacra.IndependentEventsStep
+   simulacra.RiskIndicatorStep
+   simulacra.DiscreteRiskStep
+   simulacra.DiscreteEventTimeStep

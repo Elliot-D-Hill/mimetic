@@ -58,7 +58,7 @@ def linear_predictor(
 
     Examples
     --------
-    >>> from mimetic import linear_predictor
+    >>> from simulacra import linear_predictor
     >>> state = linear_predictor(2, 3, 4)
     >>> state["eta"].shape
     torch.Size([2, 3, 1])
@@ -111,7 +111,7 @@ def gaussian(state: PredictorState, std: float, covariance: Tensor) -> ObservedS
     Examples
     --------
     >>> import torch
-    >>> from mimetic import linear_predictor, gaussian
+    >>> from simulacra import linear_predictor, gaussian
     >>> state = linear_predictor(2, 3, 4)
     >>> result = gaussian(state, std=1.0, covariance=torch.eye(3))
     >>> result["y"].shape
@@ -152,7 +152,7 @@ def poisson(state: PredictorState) -> ObservedState:
 
     Examples
     --------
-    >>> from mimetic import linear_predictor, poisson
+    >>> from simulacra import linear_predictor, poisson
     >>> state = linear_predictor(2, 3, 4)
     >>> result = poisson(state)
     >>> result["y"].shape
@@ -191,7 +191,7 @@ def bernoulli(state: PredictorState, prevalence: float = 0.5) -> ObservedState:
 
     Examples
     --------
-    >>> from mimetic import linear_predictor, bernoulli
+    >>> from simulacra import linear_predictor, bernoulli
     >>> state = linear_predictor(2, 3, 4)
     >>> result = bernoulli(state, prevalence=0.3)
     >>> result["y"].shape
@@ -228,7 +228,7 @@ def categorical(state: PredictorState) -> ObservedState:
 
     Examples
     --------
-    >>> from mimetic import linear_predictor, linear, categorical
+    >>> from simulacra import linear_predictor, linear, categorical
     >>> state = linear(linear_predictor(2, 3, 4), out_features=5)
     >>> result = categorical(state)
     >>> result["y"].shape
@@ -272,7 +272,7 @@ def ordinal(
 
     Examples
     --------
-    >>> from mimetic import linear_predictor, ordinal
+    >>> from simulacra import linear_predictor, ordinal
     >>> state = linear_predictor(2, 3, 4)
     >>> result = ordinal(state, num_classes=4)
     >>> result["mu"].shape
@@ -346,7 +346,7 @@ def random_effects(
 
     Examples
     --------
-    >>> from mimetic import linear_predictor, random_effects
+    >>> from simulacra import linear_predictor, random_effects
     >>> state = random_effects(linear_predictor(2, 3, 4), std=[0.5, 1.0])
     >>> state["gamma"].shape
     torch.Size([2, 2, 1])
@@ -394,7 +394,7 @@ def activation[T: PredictorState](state: T, fn: Callable[[Tensor], Tensor]) -> T
     Examples
     --------
     >>> import torch
-    >>> from mimetic import linear_predictor, activation
+    >>> from simulacra import linear_predictor, activation
     >>> state = activation(linear_predictor(2, 3, 4), torch.relu)
     >>> state["eta"].shape
     torch.Size([2, 3, 1])
@@ -434,7 +434,7 @@ def linear[T: PredictorState](
 
     Examples
     --------
-    >>> from mimetic import linear_predictor, linear
+    >>> from simulacra import linear_predictor, linear
     >>> state = linear(linear_predictor(2, 3, 4), out_features=5)
     >>> state["eta"].shape
     torch.Size([2, 3, 5])
@@ -478,7 +478,7 @@ def mlp[T: PredictorState](
 
     Examples
     --------
-    >>> from mimetic import linear_predictor, mlp
+    >>> from simulacra import linear_predictor, mlp
     >>> state = mlp(linear_predictor(2, 3, 4), hidden_features=8)
     >>> state["eta"].shape
     torch.Size([2, 3, 1])
@@ -520,7 +520,7 @@ def tokens(
     Examples
     --------
     >>> import torch
-    >>> from mimetic import linear_predictor, gaussian, tokens
+    >>> from simulacra import linear_predictor, gaussian, tokens
     >>> state = gaussian(linear_predictor(2, 3, 4), 1.0, torch.eye(3))
     >>> result = tokens(state, vocab_size=100)
     >>> result["tokens"].shape
@@ -567,7 +567,7 @@ def observation_time[T: PredictorState](state: T, shape: float, rate: float) -> 
 
     Examples
     --------
-    >>> from mimetic import linear_predictor, observation_time
+    >>> from simulacra import linear_predictor, observation_time
     >>> state = observation_time(linear_predictor(2, 3, 4), shape=2.0, rate=1.0)
     >>> state["time"].shape
     torch.Size([2, 3, 1])

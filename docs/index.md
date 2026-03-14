@@ -1,8 +1,8 @@
-# mimetic
+# simulacra
 
 Synthetic data generation for generalized linear mixed models.
 
-**mimetic** builds longitudinal datasets one pipeline stage at a time:
+**simulacra** builds longitudinal datasets one pipeline stage at a time:
 design matrices, random effects, response distributions, survival
 processes, and competing risks — all as pure tensor operations.
 

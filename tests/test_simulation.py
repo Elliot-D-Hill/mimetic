@@ -1,6 +1,6 @@
 import torch
 
-from mimetic import AR1Covariance, Simulation
+from simulacra import AR1Covariance, Simulation
 
 
 def test_simulation_bernoulli_with_tokens() -> None:

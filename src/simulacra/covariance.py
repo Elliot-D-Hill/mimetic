@@ -77,7 +77,7 @@ def isotropic_covariance(num_timepoints: int) -> Tensor:
 
     Examples
     --------
-    >>> from mimetic.covariance import isotropic_covariance
+    >>> from simulacra.covariance import isotropic_covariance
     >>> isotropic_covariance(3).shape
     torch.Size([3, 3])
     """
@@ -116,7 +116,7 @@ def ar1_covariance(correlation: float, num_timepoints: int) -> Tensor:
 
     Examples
     --------
-    >>> from mimetic.covariance import ar1_covariance
+    >>> from simulacra.covariance import ar1_covariance
     >>> ar1_covariance(0.9, 3).shape
     torch.Size([3, 3])
     """
@@ -147,7 +147,7 @@ def lkj_covariance(concentration: float, num_timepoints: int) -> Tensor:
 
     Examples
     --------
-    >>> from mimetic.covariance import lkj_covariance
+    >>> from simulacra.covariance import lkj_covariance
     >>> lkj_covariance(1.0, 3).shape
     torch.Size([3, 3])
     """
@@ -194,7 +194,7 @@ def random_effects_covariance(
 
     Examples
     --------
-    >>> from mimetic.covariance import random_effects_covariance
+    >>> from simulacra.covariance import random_effects_covariance
     >>> random_effects_covariance([0.5, 1.0]).shape
     torch.Size([2, 2])
     """
@@ -247,7 +247,7 @@ def residual_covariance(
 
     Examples
     --------
-    >>> from mimetic.covariance import residual_covariance, AR1Covariance
+    >>> from simulacra.covariance import residual_covariance, AR1Covariance
     >>> residual_covariance(3, AR1Covariance(0.8)).shape
     torch.Size([3, 3])
     """

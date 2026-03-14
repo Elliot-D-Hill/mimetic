@@ -44,7 +44,7 @@ def event_time(state: ObservedState) -> EventTimeState:
     Examples
     --------
     >>> import torch
-    >>> from mimetic import linear_predictor, gaussian, event_time
+    >>> from simulacra import linear_predictor, gaussian, event_time
     >>> obs = gaussian(linear_predictor(2, 3, 4), 1.0, torch.eye(3))
     >>> result = event_time(obs)
     >>> result["event_time"].shape
@@ -77,8 +77,8 @@ def mixture_cure_censoring(state: EventTimeState) -> EventTimeState:
     Examples
     --------
     >>> import torch
-    >>> from mimetic import linear_predictor, bernoulli, event_time
-    >>> from mimetic.survival import mixture_cure_censoring
+    >>> from simulacra import linear_predictor, bernoulli, event_time
+    >>> from simulacra.survival import mixture_cure_censoring
     >>> obs = bernoulli(linear_predictor(2, 3, 4), prevalence=0.01)
     >>> result = mixture_cure_censoring(event_time(obs))
     >>> result["event_time"].shape
@@ -118,7 +118,7 @@ def censor_time(state: EventTimeState) -> CensoredState:
     Examples
     --------
     >>> import torch
-    >>> from mimetic import linear_predictor, gaussian, event_time, censor_time
+    >>> from simulacra import linear_predictor, gaussian, event_time, censor_time
     >>> obs = gaussian(linear_predictor(2, 3, 4), 1.0, torch.eye(3))
     >>> result = censor_time(event_time(obs))
     >>> result["censor_time"].shape
@@ -160,8 +160,8 @@ def survival_indicators(state: CensoredState) -> SurvivalState:
     Examples
     --------
     >>> import torch
-    >>> from mimetic import linear_predictor, gaussian
-    >>> from mimetic import event_time, censor_time, survival_indicators
+    >>> from simulacra import linear_predictor, gaussian
+    >>> from simulacra import event_time, censor_time, survival_indicators
     >>> obs = gaussian(linear_predictor(2, 3, 4), 1.0, torch.eye(3))
     >>> result = survival_indicators(censor_time(event_time(obs)))
     >>> result["indicator"].shape
@@ -218,7 +218,7 @@ def independent_events(
 
     Examples
     --------
-    >>> from mimetic import linear_predictor, linear, independent_events
+    >>> from simulacra import linear_predictor, linear, independent_events
     >>> state = linear(linear_predictor(2, 3, 4), out_features=3)
     >>> result = independent_events(state)
     >>> result["event_mask"].shape
@@ -266,7 +266,7 @@ def competing_risks(
 
     Examples
     --------
-    >>> from mimetic import linear_predictor, linear, competing_risks
+    >>> from simulacra import linear_predictor, linear, competing_risks
     >>> state = linear(linear_predictor(2, 3, 4), out_features=3)
     >>> result = competing_risks(state)
     >>> result["failure_times"].shape
@@ -306,8 +306,8 @@ def risk_indicators(state: CompetingRisksState) -> RiskIndicatorState:
 
     Examples
     --------
-    >>> from mimetic import linear_predictor, linear, competing_risks
-    >>> from mimetic import risk_indicators
+    >>> from simulacra import linear_predictor, linear, competing_risks
+    >>> from simulacra import risk_indicators
     >>> state = linear(linear_predictor(2, 3, 4), out_features=3)
     >>> result = risk_indicators(competing_risks(state))
     >>> result["indicator"].shape
@@ -353,7 +353,7 @@ def multi_event(
 
     Examples
     --------
-    >>> from mimetic import linear_predictor, linear, competing_risks, multi_event
+    >>> from simulacra import linear_predictor, linear, competing_risks, multi_event
     >>> state = linear(linear_predictor(2, 3, 4), out_features=3)
     >>> result = multi_event(competing_risks(state))
     >>> result["event_time"].shape
@@ -403,8 +403,8 @@ def discretize_risk(state: RiskIndicatorState, boundaries: Tensor) -> DiscreteRi
     Examples
     --------
     >>> import torch
-    >>> from mimetic import linear_predictor, linear, competing_risks
-    >>> from mimetic import risk_indicators, discretize_risk
+    >>> from simulacra import linear_predictor, linear, competing_risks
+    >>> from simulacra import risk_indicators, discretize_risk
     >>> state = linear(linear_predictor(2, 3, 4), out_features=3)
     >>> result = discretize_risk(
     ...     risk_indicators(competing_risks(state)),

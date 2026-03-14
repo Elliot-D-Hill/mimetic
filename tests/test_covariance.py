@@ -1,7 +1,7 @@
 import pytest
 import torch
 
-from mimetic.covariance import (
+from simulacra.covariance import (
     AR1Covariance,
     IsotropicCovariance,
     LKJCovariance,

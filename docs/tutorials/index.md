@@ -1,6 +1,6 @@
 # Tutorials
 
-Step-by-step walkthroughs of each mimetic pipeline stage.
+Step-by-step walkthroughs of each simulacra pipeline stage.
 
 ```{toctree}
 :maxdepth: 1

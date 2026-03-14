@@ -1,6 +1,6 @@
 import torch
 
-from mimetic.functional import (
+from simulacra.functional import (
     activation,
     bernoulli,
     categorical,

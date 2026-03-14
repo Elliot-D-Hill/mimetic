@@ -1,6 +1,6 @@
 # Linear predictor
 
-The linear predictor is the foundation of every mimetic pipeline.
+The linear predictor is the foundation of every simulacra pipeline.
 A design matrix `X` [T, P] is drawn from a standard normal, coefficients
 `beta` [P] are sampled the same way, and the linear predictor is their
 product: `eta = X @ beta`.

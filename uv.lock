@@ -653,55 +653,6 @@ wheels = [
 ]
 
 [[package]]
-name = "mimetic"
-version = "0.1.0"
-source = { editable = "." }
-dependencies = [
-    { name = "tensordict" },
-    { name = "torch" },
-]
-
-[package.dev-dependencies]
-dev = [
-    { name = "marimo" },
-    { name = "matplotlib" },
-    { name = "myst-parser" },
-    { name = "numpydoc" },
-    { name = "pydata-sphinx-theme" },
-    { name = "pyright" },
-    { name = "pytest" },
-    { name = "ruff" },
-    { name = "sphinx" },
-    { name = "sphinx-autobuild" },
-    { name = "sphinx-autodoc-typehints" },
-    { name = "sphinx-copybutton" },
-    { name = "sphinx-design" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "tensordict", specifier = ">=0.11.0" },
-    { name = "torch", specifier = ">=2.10.0" },
-]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "marimo", specifier = ">=0.20.4" },
-    { name = "matplotlib", specifier = ">=3.10.0" },
-    { name = "myst-parser", specifier = ">=4.0.0" },
-    { name = "numpydoc", specifier = ">=1.10.0" },
-    { name = "pydata-sphinx-theme", specifier = ">=0.16.1" },
-    { name = "pyright", specifier = ">=1.1.408" },
-    { name = "pytest", specifier = ">=9.0.2" },
-    { name = "ruff", specifier = ">=0.15.5" },
-    { name = "sphinx", specifier = ">=9.1.0" },
-    { name = "sphinx-autobuild", specifier = ">=2025.8.25" },
-    { name = "sphinx-autodoc-typehints", specifier = ">=3.9.8" },
-    { name = "sphinx-copybutton", specifier = ">=0.5.0" },
-    { name = "sphinx-design", specifier = ">=0.6.0" },
-]
-
-[[package]]
 name = "mpmath"
 version = "1.3.0"
 source = { registry = "https://pypi.org/simple" }
@@ -1286,6 +1237,55 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/82/f3/748f4d6f65d1756b9ae577f329c951cda23fb900e4de9f70900ced962085/setuptools-82.0.0.tar.gz", hash = "sha256:22e0a2d69474c6ae4feb01951cb69d515ed23728cf96d05513d36e42b62b37cb", size = 1144893, upload-time = "2026-02-08T15:08:40.206Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/e1/c6/76dc613121b793286a3f91621d7b75a2b493e0390ddca50f11993eadf192/setuptools-82.0.0-py3-none-any.whl", hash = "sha256:70b18734b607bd1da571d097d236cfcfacaf01de45717d59e6e04b96877532e0", size = 1003468, upload-time = "2026-02-08T15:08:38.723Z" },
+]
+
+[[package]]
+name = "simulacra"
+version = "0.1.0"
+source = { editable = "." }
+dependencies = [
+    { name = "tensordict" },
+    { name = "torch" },
+]
+
+[package.dev-dependencies]
+dev = [
+    { name = "marimo" },
+    { name = "matplotlib" },
+    { name = "myst-parser" },
+    { name = "numpydoc" },
+    { name = "pydata-sphinx-theme" },
+    { name = "pyright" },
+    { name = "pytest" },
+    { name = "ruff" },
+    { name = "sphinx" },
+    { name = "sphinx-autobuild" },
+    { name = "sphinx-autodoc-typehints" },
+    { name = "sphinx-copybutton" },
+    { name = "sphinx-design" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "tensordict", specifier = ">=0.11.0" },
+    { name = "torch", specifier = ">=2.10.0" },
+]
+
+[package.metadata.requires-dev]
+dev = [
+    { name = "marimo", specifier = ">=0.20.4" },
+    { name = "matplotlib", specifier = ">=3.10.0" },
+    { name = "myst-parser", specifier = ">=4.0.0" },
+    { name = "numpydoc", specifier = ">=1.10.0" },
+    { name = "pydata-sphinx-theme", specifier = ">=0.16.1" },
+    { name = "pyright", specifier = ">=1.1.408" },
+    { name = "pytest", specifier = ">=9.0.2" },
+    { name = "ruff", specifier = ">=0.15.5" },
+    { name = "sphinx", specifier = ">=9.1.0" },
+    { name = "sphinx-autobuild", specifier = ">=2025.8.25" },
+    { name = "sphinx-autodoc-typehints", specifier = ">=3.9.8" },
+    { name = "sphinx-copybutton", specifier = ">=0.5.0" },
+    { name = "sphinx-design", specifier = ">=0.6.0" },
 ]
 
 [[package]]

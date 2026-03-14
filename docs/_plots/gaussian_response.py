@@ -1,6 +1,6 @@
 import torch
 import matplotlib.pyplot as plt
-from mimetic import Simulation
+from simulacra import Simulation
 
 torch.manual_seed(0)
 

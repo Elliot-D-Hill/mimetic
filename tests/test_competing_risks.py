@@ -1,6 +1,6 @@
 import torch
 
-from mimetic import CompetingRisksStep, IndependentEventsStep, Simulation
+from simulacra import CompetingRisksStep, IndependentEventsStep, Simulation
 
 K = 3
 N = 16

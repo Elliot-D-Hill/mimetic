@@ -1,4 +1,4 @@
-project = "mimetic"
+project = "simulacra"
 copyright = "2025, Elliot Hill"
 author = "Elliot Hill"
 
@@ -55,7 +55,7 @@ plot_rcparams = {
 # -- Doctest -----------------------------------------------------------------
 doctest_global_setup = """
 import torch
-import mimetic
+import simulacra
 """
 
 # -- Intersphinx -------------------------------------------------------------
@@ -70,5 +70,5 @@ html_theme_options = {
     "navigation_with_keys": False,
     "show_toc_level": 2,
     "navbar_align": "left",
-    "github_url": "https://github.com/elliothill/mimetic",
+    "github_url": "https://github.com/elliothill/simulacra",
 }

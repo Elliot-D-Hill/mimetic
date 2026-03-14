@@ -3,7 +3,7 @@
 ## Installation
 
 ```bash
-uv add mimetic
+uv add simulacra
 ```
 
 ## Minimal example
@@ -13,7 +13,7 @@ timepoints with 3 fixed-effect predictors:
 
 ```python
 import torch
-from mimetic import Simulation
+from simulacra import Simulation
 
 torch.manual_seed(42)
 data = (
