@@ -323,7 +323,6 @@ def test_activation_applies_transform() -> None:
 
     Tests: nonlinearity applied to eta, downstream family chaining.
     """
-    torch.manual_seed(0)
     num_samples = 64
     num_timepoints = 6
     num_features = 4
@@ -341,7 +340,6 @@ def test_linear_changes_eta_dimension() -> None:
 
     Tests: eta dimension change, no y at PredictorState level.
     """
-    torch.manual_seed(0)
     num_samples = 32
     num_timepoints = 6
     num_features = 4
@@ -355,7 +353,6 @@ def test_mlp_shapes() -> None:
 
     Tests: eta returns to input dim [N, T, 1] after MLP.
     """
-    torch.manual_seed(0)
     num_samples = 32
     num_timepoints = 6
     num_features = 4
@@ -368,7 +365,6 @@ def test_mlp_chains_to_bernoulli() -> None:
 
     Tests: end-to-end MLP + classification chain.
     """
-    torch.manual_seed(0)
     num_samples = 32
     num_timepoints = 6
     num_features = 4
@@ -387,7 +383,6 @@ def test_user_supplied_X_and_beta() -> None:
 
     Tests: override path for fixed-effects tensors, verifiable eta.
     """
-    torch.manual_seed(0)
     num_samples = 8
     num_timepoints = 4
     num_features = 3
@@ -406,7 +401,6 @@ def test_user_supplied_Z_and_gamma() -> None:
 
     Tests: override path for random-effects tensors, tensors stored unchanged.
     """
-    torch.manual_seed(0)
     num_samples = 8
     num_timepoints = 4
     q = 2
@@ -449,7 +443,6 @@ def test_gaussian_family_smoke() -> None:
 
     Tests: identity link produces mu equal to eta, noise key exists.
     """
-    torch.manual_seed(0)
     num_samples = 100
     num_timepoints = 10
     num_features = 5
@@ -466,7 +459,6 @@ def test_poisson_family_smoke() -> None:
 
     Tests: log link, non-negative integer response.
     """
-    torch.manual_seed(0)
     num_samples = 100
     num_timepoints = 10
     num_features = 5
@@ -489,7 +481,6 @@ def test_bernoulli_family_smoke() -> None:
 
     Tests: logit link, binary response, mu in (0, 1).
     """
-    torch.manual_seed(0)
     num_samples = 100
     num_timepoints = 10
     num_features = 5
@@ -507,7 +498,6 @@ def test_binomial_family_smoke() -> None:
 
     Tests: logit link, count response bounded by num_trials.
     """
-    torch.manual_seed(0)
     num_samples = 100
     num_timepoints = 10
     num_features = 5
@@ -530,7 +520,6 @@ def test_multinomial_family_smoke() -> None:
 
     Tests: softmax link, count vectors.
     """
-    torch.manual_seed(0)
     num_samples = 100
     num_timepoints = 10
     num_features = 5
@@ -555,7 +544,6 @@ def test_negative_binomial_family_smoke() -> None:
 
     Tests: log link, non-negative integer response.
     """
-    torch.manual_seed(0)
     num_samples = 100
     num_timepoints = 10
     num_features = 5
@@ -576,7 +564,6 @@ def test_gamma_family_smoke() -> None:
 
     Tests: log link, positive continuous response.
     """
-    torch.manual_seed(0)
     num_samples = 100
     num_timepoints = 10
     num_features = 5
@@ -592,7 +579,6 @@ def test_beta_family_smoke() -> None:
 
     Tests: logit link, bounded continuous response.
     """
-    torch.manual_seed(0)
     num_samples = 100
     num_timepoints = 10
     num_features = 5
@@ -609,7 +595,6 @@ def test_log_normal_family_smoke() -> None:
 
     Tests: log link, positive continuous response.
     """
-    torch.manual_seed(0)
     num_samples = 100
     num_timepoints = 10
     num_features = 5
@@ -625,7 +610,6 @@ def test_offset_preserves_shapes() -> None:
 
     Tests: offset applied before a count response does not alter output dimensions.
     """
-    torch.manual_seed(0)
     num_samples = 100
     num_timepoints = 10
     num_features = 5
@@ -647,7 +631,6 @@ def test_zero_inflated_poisson_family_smoke() -> None:
 
     Tests: log link, non-negative integer response with excess zeros.
     """
-    torch.manual_seed(0)
     num_samples = 100
     num_timepoints = 10
     num_features = 5
@@ -669,7 +652,6 @@ def test_zero_inflated_negative_binomial_family_smoke() -> None:
 
     Tests: log link, non-negative integer response with excess zeros.
     """
-    torch.manual_seed(0)
     num_samples = 100
     num_timepoints = 10
     num_features = 5

@@ -1,3 +1,5 @@
+import math
+
 import torch
 
 from simulacra.functional import (
@@ -24,6 +26,8 @@ from simulacra.functional import (
     zero_inflated_poisson,
 )
 from simulacra.states import has_noise, has_random_effects
+
+N, T, P = 4, 5, 3
 
 
 def test_task_pipeline_smoke() -> None:
@@ -56,13 +60,11 @@ def test_linear_predictor_shapes() -> None:
 
     Tests: shape contract for all returned tensors.
     """
-    torch.manual_seed(0)
-    N, T, p = 4, 5, 3
-    state = linear_predictor(N, T, p)
+    state = linear_predictor(N, T, P)
     assert state["eta"].shape == (N, T, 1)
     assert state["time"].shape == (N, T, 1)
-    assert state["X"].shape == (N, T, p)
-    assert state["beta"].shape == (N, p, 1)
+    assert state["X"].shape == (N, T, P)
+    assert state["beta"].shape == (N, P, 1)
 
 
 def test_linear_predictor_eta_equals_X_bmm_beta() -> None:
@@ -70,7 +72,6 @@ def test_linear_predictor_eta_equals_X_bmm_beta() -> None:
 
     Tests: definitional invariant — eta is exactly X @ beta.
     """
-    torch.manual_seed(1)
     state = linear_predictor(4, 5, 3)
     expected = torch.bmm(state["X"], state["beta"])
     assert torch.equal(state["eta"], expected)
@@ -116,7 +117,6 @@ def test_linear_predictor_single_timepoint() -> None:
 
     Tests: degenerate case with a single observation per subject.
     """
-    torch.manual_seed(2)
     state = linear_predictor(4, 1, 3)
     assert state["eta"].shape == (4, 1, 1)
     assert state["X"].shape == (4, 1, 3)
@@ -127,7 +127,6 @@ def test_linear_predictor_single_feature() -> None:
 
     Tests: degenerate case with a single predictor.
     """
-    torch.manual_seed(3)
     state = linear_predictor(4, 5, 1)
     assert state["eta"].shape == (4, 5, 1)
     assert state["beta"].shape == (4, 1, 1)
@@ -143,7 +142,6 @@ def test_gaussian_y_equals_mu_plus_noise() -> None:
 
     Tests: definitional invariant — Gaussian response is mean plus noise.
     """
-    torch.manual_seed(10)
     state = linear_predictor(4, 5, 3)
     result = gaussian(state, std=1.0, covariance=torch.eye(5))
     assert has_noise(result)
@@ -155,7 +153,6 @@ def test_gaussian_mu_equals_eta() -> None:
 
     Tests: definitional invariant — identity link means mu is eta.
     """
-    torch.manual_seed(11)
     state = linear_predictor(4, 5, 3)
     eta_before = state["eta"].clone()
     result = gaussian(state, std=1.0, covariance=torch.eye(5))
@@ -167,8 +164,6 @@ def test_gaussian_shapes() -> None:
 
     Tests: shape contract for Gaussian response.
     """
-    torch.manual_seed(12)
-    N, T = 4, 5
     state = linear_predictor(N, T, 3)
     result = gaussian(state, std=1.0, covariance=torch.eye(T))
     assert result["y"].shape == (N, T, 1)
@@ -218,7 +213,6 @@ def test_poisson_mu_equals_exp_eta() -> None:
 
     Tests: definitional invariant — log link inverts to exp.
     """
-    torch.manual_seed(20)
     state = linear_predictor(4, 5, 3)
     result = poisson(state)
     assert torch.equal(result["mu"], torch.exp(state["eta"]))
@@ -229,7 +223,6 @@ def test_poisson_y_nonneg_integer() -> None:
 
     Tests: distribution support — Poisson outcomes are non-negative integers.
     """
-    torch.manual_seed(21)
     state = linear_predictor(8, 5, 3)
     result = poisson(state)
     y = result["y"]
@@ -242,8 +235,6 @@ def test_poisson_shapes() -> None:
 
     Tests: shape contract for Poisson response.
     """
-    torch.manual_seed(22)
-    N, T = 4, 5
     state = linear_predictor(N, T, 3)
     result = poisson(state)
     assert result["y"].shape == (N, T, 1)
@@ -305,8 +296,6 @@ def test_zero_inflated_poisson_shapes() -> None:
 
     Tests: shape contract for zero-inflated Poisson response.
     """
-    torch.manual_seed(260)
-    N, T = 4, 5
     state = linear_predictor(N, T, 3)
     result = zero_inflated_poisson(state, inflation=0.3)
     assert result["y"].shape == (N, T, 1)
@@ -319,7 +308,6 @@ def test_zero_inflated_poisson_mu_equals_exp_eta() -> None:
 
     Tests: definitional invariant — log link inverts to exp, unaffected by mixture.
     """
-    torch.manual_seed(261)
     state = linear_predictor(4, 5, 3)
     result = zero_inflated_poisson(state, inflation=0.5)
     assert torch.allclose(result["mu"], torch.exp(state["eta"]))
@@ -330,7 +318,6 @@ def test_zero_inflated_poisson_y_nonneg_integer() -> None:
 
     Tests: distribution support — ZIP counts are non-negative integers.
     """
-    torch.manual_seed(262)
     state = linear_predictor(8, 5, 3)
     result = zero_inflated_poisson(state, inflation=0.3)
     y = result["y"]
@@ -368,8 +355,6 @@ def test_zero_inflated_poisson_inflation_zero_recovers_poisson() -> None:
     state = linear_predictor(N, 1, 1, X=X, beta=beta)
     result = zero_inflated_poisson(state, inflation=0.0)
     zero_frac = (result["y"] == 0).float().mean().item()
-    import math
-
     assert abs(zero_frac - math.exp(-1)) < 0.03
 
 
@@ -428,7 +413,6 @@ def test_bernoulli_mu_equals_sigmoid_shifted_eta() -> None:
 
     Tests: definitional invariant — logit link with prevalence shift.
     """
-    torch.manual_seed(30)
     state = linear_predictor(4, 5, 3)
     prevalence = 0.3
     result = bernoulli(state, prevalence=prevalence)
@@ -442,7 +426,6 @@ def test_bernoulli_y_binary() -> None:
 
     Tests: distribution support — Bernoulli outcomes are binary.
     """
-    torch.manual_seed(31)
     state = linear_predictor(16, 5, 3)
     result = bernoulli(state)
     y = result["y"]
@@ -454,7 +437,6 @@ def test_bernoulli_mu_bounded() -> None:
 
     Tests: distribution support — probabilities are strictly in (0, 1).
     """
-    torch.manual_seed(32)
     state = linear_predictor(16, 5, 3)
     result = bernoulli(state)
     mu = result["mu"]
@@ -467,8 +449,6 @@ def test_bernoulli_shapes() -> None:
 
     Tests: shape contract for Bernoulli response.
     """
-    torch.manual_seed(33)
-    N, T = 4, 5
     state = linear_predictor(N, T, 3)
     result = bernoulli(state)
     assert result["y"].shape == (N, T, 1)
@@ -526,7 +506,6 @@ def test_categorical_mu_sums_to_one() -> None:
 
     Tests: theorem-derived — total probability axiom.
     """
-    torch.manual_seed(40)
     K = 5
     state = linear_predictor(4, 3, 2)
     state = linear(state, out_features=K)
@@ -540,7 +519,6 @@ def test_categorical_mu_nonneg() -> None:
 
     Tests: distribution support — probabilities are non-negative.
     """
-    torch.manual_seed(41)
     K = 5
     state = linear(linear_predictor(8, 3, 2), out_features=K)
     result = categorical(state)
@@ -552,7 +530,6 @@ def test_categorical_y_in_range() -> None:
 
     Tests: distribution support — category indices in valid range.
     """
-    torch.manual_seed(42)
     K = 5
     state = linear(linear_predictor(16, 3, 2), out_features=K)
     result = categorical(state)
@@ -566,7 +543,6 @@ def test_categorical_y_integer() -> None:
 
     Tests: distribution support — category indices are integers.
     """
-    torch.manual_seed(43)
     K = 5
     state = linear(linear_predictor(16, 3, 2), out_features=K)
     result = categorical(state)
@@ -579,7 +555,6 @@ def test_categorical_shapes() -> None:
 
     Tests: shape contract for categorical response.
     """
-    torch.manual_seed(44)
     N, T, K = 4, 3, 5
     state = linear(linear_predictor(N, T, 2), out_features=K)
     result = categorical(state)
@@ -592,7 +567,6 @@ def test_categorical_k2_binary() -> None:
 
     Tests: degenerate case — binary categorical equivalent.
     """
-    torch.manual_seed(45)
     state = linear(linear_predictor(16, 3, 2), out_features=2)
     result = categorical(state)
     y = result["y"]
@@ -604,7 +578,6 @@ def test_categorical_mu_equals_softmax() -> None:
 
     Tests: definitional invariant — softmax link for categorical.
     """
-    torch.manual_seed(47)
     K = 5
     state = linear(linear_predictor(8, 3, 2), out_features=K)
     result = categorical(state)
@@ -617,7 +590,6 @@ def test_categorical_softmax_shift_invariance() -> None:
 
     Tests: theorem-derived — softmax is translation-invariant.
     """
-    torch.manual_seed(48)
     K = 5
     state = linear(linear_predictor(8, 3, 2), out_features=K)
     mu_original = categorical(state)["mu"]
@@ -631,7 +603,6 @@ def test_categorical_softmax_large_logits() -> None:
 
     Tests: numerical stability under extreme logits.
     """
-    torch.manual_seed(46)
     K = 5
     state = linear(linear_predictor(8, 3, 2), out_features=K)
     state["eta"] = state["eta"] * 100
@@ -652,7 +623,6 @@ def test_ordinal_mu_sums_to_one() -> None:
 
     Tests: theorem-derived — total probability axiom.
     """
-    torch.manual_seed(50)
     state = linear_predictor(4, 3, 2)
     result = ordinal(state, num_classes=4)
     sums = result["mu"].sum(dim=-1)
@@ -664,7 +634,6 @@ def test_ordinal_mu_nonneg() -> None:
 
     Tests: distribution support — probabilities are non-negative.
     """
-    torch.manual_seed(51)
     state = linear_predictor(8, 3, 2)
     result = ordinal(state, num_classes=4)
     assert (result["mu"] >= 0).all()
@@ -675,7 +644,6 @@ def test_ordinal_cumulative_nondecreasing() -> None:
 
     Tests: theorem-derived — CDF monotonicity.
     """
-    torch.manual_seed(52)
     state = linear_predictor(8, 3, 2)
     result = ordinal(state, num_classes=5)
     cdf = result["mu"].cumsum(dim=-1)
@@ -688,7 +656,6 @@ def test_ordinal_y_in_range() -> None:
 
     Tests: distribution support — ordinal category indices in valid range.
     """
-    torch.manual_seed(53)
     K = 4
     state = linear_predictor(16, 3, 2)
     result = ordinal(state, num_classes=K)
@@ -702,7 +669,6 @@ def test_ordinal_shapes() -> None:
 
     Tests: shape contract for ordinal response.
     """
-    torch.manual_seed(54)
     N, T, K = 4, 3, 5
     state = linear_predictor(N, T, 2)
     result = ordinal(state, num_classes=K)
@@ -756,7 +722,6 @@ def test_ordinal_k2_binary() -> None:
 
     Tests: degenerate case — binary ordinal.
     """
-    torch.manual_seed(58)
     state = linear_predictor(16, 3, 2)
     result = ordinal(state, num_classes=2)
     y = result["y"]
@@ -775,7 +740,6 @@ def test_random_effects_eta_update() -> None:
 
     Tests: definitional invariant — random effects add Z @ gamma to eta.
     """
-    torch.manual_seed(60)
     state = linear_predictor(4, 5, 3)
     old_eta = state["eta"].clone()
     result = random_effects(state, std=[1.0, 0.5])
@@ -789,8 +753,7 @@ def test_random_effects_shapes() -> None:
 
     Tests: shape contract for random effects.
     """
-    torch.manual_seed(61)
-    N, T, q = 4, 5, 2
+    q = 2
     state = linear_predictor(N, T, 3)
     result = random_effects(state, std=[1.0, 0.5])
     assert has_random_effects(result)
@@ -804,7 +767,6 @@ def test_random_effects_vandermonde_ones_column() -> None:
 
     Tests: closed-form oracle — first column of polynomial basis.
     """
-    torch.manual_seed(62)
     state = linear_predictor(4, 5, 3)
     result = random_effects(state, std=[1.0, 0.5])
     assert has_random_effects(result)
@@ -817,7 +779,6 @@ def test_random_effects_vandermonde_centered() -> None:
 
     Tests: algebraic invariant — time centering zeroes the mean.
     """
-    torch.manual_seed(63)
     state = linear_predictor(4, 5, 3)
     result = random_effects(state, std=[1.0, 0.5])
     assert has_random_effects(result)
@@ -849,8 +810,6 @@ def test_random_effects_single_effect() -> None:
 
     Tests: degenerate case — single random intercept.
     """
-    torch.manual_seed(65)
-    N, T = 4, 5
     state = linear_predictor(N, T, 3)
     result = random_effects(state, std=[1.0])
     assert has_random_effects(result)
@@ -863,8 +822,6 @@ def test_random_effects_chained_shapes() -> None:
 
     Tests: shape contract — chaining concatenates along q dimension.
     """
-    torch.manual_seed(70)
-    N, T = 4, 5
     q1, q2 = 2, 3
     state = linear_predictor(N, T, 3)
     state = random_effects(state, std=[1.0, 0.5])
@@ -880,8 +837,6 @@ def test_random_effects_chained_eta_equals_sum() -> None:
 
     Tests: definitional invariant — each call adds its own contribution.
     """
-    torch.manual_seed(71)
-    N, T = 4, 5
     state = linear_predictor(N, T, 3)
     eta_base = state["eta"].clone()
     state1 = random_effects(state, std=[1.0, 0.5])
@@ -901,8 +856,6 @@ def test_random_effects_chained_Z_gamma_product() -> None:
 
     Tests: algebraic invariant — concatenated product equals sum of products.
     """
-    torch.manual_seed(72)
-    N, T = 4, 5
     state = linear_predictor(N, T, 3)
     state1 = random_effects(state, std=[1.0])
     state2 = random_effects(state1, std=[0.5, 0.2])
@@ -920,8 +873,7 @@ def test_random_effects_single_call_unchanged() -> None:
 
     Tests: backward compatibility — single call behavior is unchanged.
     """
-    torch.manual_seed(73)
-    N, T, q = 4, 5, 2
+    q = 2
     state = linear_predictor(N, T, 3)
     result = random_effects(state, std=[1.0, 0.5])
     assert has_random_effects(result)
@@ -995,7 +947,6 @@ def test_activation_relu_zeroes_negatives() -> None:
 
     Tests: algebraic invariant — relu clamps negatives to zero.
     """
-    torch.manual_seed(70)
     state = linear_predictor(4, 5, 3)
     result = activation(state, torch.relu)
     assert (result["eta"] >= 0).all()
@@ -1006,7 +957,6 @@ def test_activation_identity_fn() -> None:
 
     Tests: degenerate case — no-op activation.
     """
-    torch.manual_seed(71)
     state = linear_predictor(4, 5, 3)
     eta_before = state["eta"].clone()
     result = activation(state, lambda x: x)
@@ -1018,7 +968,6 @@ def test_activation_tanh_bounded() -> None:
 
     Tests: range constraint — tanh squashes to [-1, 1].
     """
-    torch.manual_seed(73)
     state = linear_predictor(8, 5, 3)
     result = activation(state, torch.tanh)
     assert (result["eta"] >= -1.0).all()
@@ -1035,7 +984,6 @@ def test_offset_adds_to_eta() -> None:
 
     Tests: algebraic identity — offset is pure addition.
     """
-    torch.manual_seed(74)
     state = linear_predictor(4, 5, 3)
     eta_before = state["eta"].clone()
     log_exposure = torch.ones(4, 5, 1) * 0.5
@@ -1048,7 +996,6 @@ def test_offset_zero_is_identity() -> None:
 
     Tests: degenerate case — zero offset is a no-op.
     """
-    torch.manual_seed(75)
     state = linear_predictor(4, 5, 3)
     eta_before = state["eta"].clone()
     result = offset(state, torch.zeros(4, 5, 1))
@@ -1060,7 +1007,6 @@ def test_offset_broadcasts_scalar() -> None:
 
     Tests: broadcasting — scalar offset shifts every eta element equally.
     """
-    torch.manual_seed(76)
     state = linear_predictor(4, 5, 3)
     eta_before = state["eta"].clone()
     log_exposure = torch.tensor(2.0)
@@ -1073,7 +1019,6 @@ def test_offset_preserves_other_keys() -> None:
 
     Tests: isolation — offset only modifies eta.
     """
-    torch.manual_seed(77)
     state = linear_predictor(4, 5, 3)
     result = offset(state, torch.ones(4, 5, 1))
     assert torch.equal(result["X"], state["X"])
@@ -1091,7 +1036,6 @@ def test_linear_output_dimension() -> None:
 
     Tests: shape contract — linear changes final dimension.
     """
-    torch.manual_seed(80)
     state = linear_predictor(4, 5, 3)
     result = linear(state, out_features=7)
     assert result["eta"].shape[2] == 7
@@ -1102,7 +1046,6 @@ def test_linear_user_supplied_weight() -> None:
 
     Tests: closed-form oracle with user-supplied weight matrix.
     """
-    torch.manual_seed(81)
     state = linear_predictor(4, 5, 3)
     old_eta = state["eta"].clone()
     W = torch.eye(1, 2)  # [1, 2] — first column is identity, second is zero
@@ -1116,8 +1059,6 @@ def test_linear_out_one() -> None:
 
     Tests: degenerate case — projecting to scalar.
     """
-    torch.manual_seed(84)
-    N, T = 4, 5
     state = linear(linear_predictor(N, T, 3), out_features=5)
     result = linear(state, out_features=1)
     assert result["eta"].shape == (N, T, 1)
@@ -1133,8 +1074,6 @@ def test_mlp_default_preserves_dimension() -> None:
 
     Tests: shape contract — MLP preserves dimension by default.
     """
-    torch.manual_seed(90)
-    N, T = 4, 5
     state = linear_predictor(N, T, 3)
     result = mlp(state, hidden_features=8)
     assert result["eta"].shape[2] == state["eta"].shape[2]
@@ -1145,7 +1084,6 @@ def test_mlp_custom_out_features() -> None:
 
     Tests: shape contract — MLP respects custom output dimension.
     """
-    torch.manual_seed(91)
     state = linear_predictor(4, 5, 3)
     result = mlp(state, hidden_features=8, out_features=6)
     assert result["eta"].shape[2] == 6
@@ -1161,8 +1099,6 @@ def test_tokens_shape() -> None:
 
     Tests: shape contract for tokenized output.
     """
-    torch.manual_seed(100)
-    N, T = 4, 5
     state = linear_predictor(N, T, 3)
     observed = gaussian(state, std=1.0, covariance=torch.eye(T))
     result = tokens(observed, vocab_size=32)
@@ -1174,7 +1110,6 @@ def test_tokens_in_range() -> None:
 
     Tests: distribution support — token IDs in valid range.
     """
-    torch.manual_seed(101)
     vocab_size = 32
     state = linear_predictor(8, 5, 3)
     observed = gaussian(state, std=1.0, covariance=torch.eye(5))
@@ -1189,7 +1124,6 @@ def test_tokens_integer() -> None:
 
     Tests: distribution support — discrete token IDs.
     """
-    torch.manual_seed(102)
     state = linear_predictor(8, 5, 3)
     observed = gaussian(state, std=1.0, covariance=torch.eye(5))
     result = tokens(observed, vocab_size=32)
@@ -1207,7 +1141,6 @@ def test_observation_time_strictly_increasing() -> None:
 
     Tests: theorem-derived — cumulative sum of positive intervals is monotone.
     """
-    torch.manual_seed(110)
     state = linear_predictor(8, 10, 3)
     result = observation_time(state, shape=2.0, rate=1.0)
     time = result["time"]
@@ -1220,7 +1153,6 @@ def test_observation_time_positive() -> None:
 
     Tests: distribution support — Gamma intervals are strictly positive.
     """
-    torch.manual_seed(111)
     state = linear_predictor(8, 10, 3)
     result = observation_time(state, shape=2.0, rate=1.0)
     assert (result["time"] > 0).all()
@@ -1231,8 +1163,6 @@ def test_observation_time_shape() -> None:
 
     Tests: shape contract for observation time.
     """
-    torch.manual_seed(112)
-    N, T = 4, 5
     state = linear_predictor(N, T, 3)
     result = observation_time(state, shape=2.0, rate=1.0)
     assert result["time"].shape == (N, T, 1)
@@ -1265,8 +1195,6 @@ def test_binomial_shapes() -> None:
 
     Tests: shape contract for binomial response.
     """
-    torch.manual_seed(200)
-    N, T = 4, 5
     state = linear_predictor(N, T, 3)
     result = binomial(state, num_trials=10)
     assert result["y"].shape == (N, T, 1)
@@ -1278,7 +1206,6 @@ def test_binomial_mu_equals_sigmoid_shifted_eta() -> None:
 
     Tests: definitional invariant — logit link with prevalence shift.
     """
-    torch.manual_seed(201)
     state = linear_predictor(4, 5, 3)
     prevalence = 0.3
     result = binomial(state, num_trials=10, prevalence=prevalence)
@@ -1292,7 +1219,6 @@ def test_binomial_y_bounded_integer() -> None:
 
     Tests: distribution support — binomial counts bounded by trials.
     """
-    torch.manual_seed(202)
     num_trials = 10
     state = linear_predictor(16, 5, 3)
     result = binomial(state, num_trials=num_trials)
@@ -1307,7 +1233,6 @@ def test_binomial_n1_recovers_bernoulli() -> None:
 
     Tests: degenerate case — binomial(1) is bernoulli.
     """
-    torch.manual_seed(203)
     state = linear_predictor(16, 5, 3)
     result_bin = binomial(state, num_trials=1, prevalence=0.3)
     result_bern = bernoulli(state, prevalence=0.3)
@@ -1373,7 +1298,6 @@ def test_multinomial_shapes() -> None:
 
     Tests: shape contract for multinomial response.
     """
-    torch.manual_seed(210)
     N, T, K = 4, 3, 5
     state = linear(linear_predictor(N, T, 2), out_features=K)
     result = multinomial(state, num_trials=10)
@@ -1386,7 +1310,6 @@ def test_multinomial_mu_equals_softmax() -> None:
 
     Tests: definitional invariant — softmax link for multinomial.
     """
-    torch.manual_seed(211)
     K = 5
     state = linear(linear_predictor(8, 3, 2), out_features=K)
     result = multinomial(state, num_trials=10)
@@ -1399,7 +1322,6 @@ def test_multinomial_y_nonneg_integer_sums_to_n() -> None:
 
     Tests: distribution support — count vector with fixed total.
     """
-    torch.manual_seed(212)
     num_trials = 10
     K = 5
     state = linear(linear_predictor(16, 3, 2), out_features=K)
@@ -1416,7 +1338,6 @@ def test_multinomial_n1_one_hot() -> None:
 
     Tests: degenerate case — single draw yields exactly one count.
     """
-    torch.manual_seed(213)
     K = 5
     state = linear(linear_predictor(16, 3, 2), out_features=K)
     result = multinomial(state, num_trials=1)
@@ -1451,7 +1372,6 @@ def test_multinomial_mu_sums_to_one() -> None:
 
     Tests: theorem-derived — total probability axiom.
     """
-    torch.manual_seed(215)
     K = 5
     state = linear(linear_predictor(4, 3, 2), out_features=K)
     result = multinomial(state, num_trials=10)
@@ -1464,7 +1384,6 @@ def test_multinomial_large_logits_finite() -> None:
 
     Tests: numerical stability under extreme logits.
     """
-    torch.manual_seed(216)
     K = 5
     state = linear(linear_predictor(8, 3, 2), out_features=K)
     state["eta"] = state["eta"] * 100
@@ -1483,8 +1402,6 @@ def test_negative_binomial_shapes() -> None:
 
     Tests: shape contract for negative binomial response.
     """
-    torch.manual_seed(220)
-    N, T = 4, 5
     state = linear_predictor(N, T, 3)
     result = negative_binomial(state, concentration=2.0)
     assert result["y"].shape == (N, T, 1)
@@ -1496,7 +1413,6 @@ def test_negative_binomial_mu_equals_exp_eta() -> None:
 
     Tests: definitional invariant — log link inverts to exp.
     """
-    torch.manual_seed(221)
     state = linear_predictor(4, 5, 3)
     result = negative_binomial(state, concentration=2.0)
     assert torch.allclose(result["mu"], torch.exp(state["eta"]))
@@ -1507,7 +1423,6 @@ def test_negative_binomial_y_nonneg_integer() -> None:
 
     Tests: distribution support — negative binomial counts are non-negative integers.
     """
-    torch.manual_seed(222)
     state = linear_predictor(8, 5, 3)
     result = negative_binomial(state, concentration=2.0)
     y = result["y"]
@@ -1566,7 +1481,6 @@ def test_negative_binomial_extreme_eta_finite() -> None:
 
     Tests: numerical stability — exp(20) pushes into large-mu regime.
     """
-    torch.manual_seed(226)
     state = linear_predictor(4, 5, 3)
     state["eta"] = torch.full_like(state["eta"], 20.0)
     result = negative_binomial(state, concentration=2.0)
@@ -1584,8 +1498,6 @@ def test_zero_inflated_negative_binomial_shapes() -> None:
 
     Tests: shape contract for zero-inflated negative binomial response.
     """
-    torch.manual_seed(270)
-    N, T = 4, 5
     state = linear_predictor(N, T, 3)
     result = zero_inflated_negative_binomial(state, inflation=0.3, concentration=2.0)
     assert result["y"].shape == (N, T, 1)
@@ -1598,7 +1510,6 @@ def test_zero_inflated_negative_binomial_mu_equals_exp_eta() -> None:
 
     Tests: definitional invariant — log link inverts to exp, unaffected by mixture.
     """
-    torch.manual_seed(271)
     state = linear_predictor(4, 5, 3)
     result = zero_inflated_negative_binomial(state, inflation=0.5, concentration=2.0)
     assert torch.allclose(result["mu"], torch.exp(state["eta"]))
@@ -1609,7 +1520,6 @@ def test_zero_inflated_negative_binomial_y_nonneg_integer() -> None:
 
     Tests: distribution support — ZINB counts are non-negative integers.
     """
-    torch.manual_seed(272)
     state = linear_predictor(8, 5, 3)
     result = zero_inflated_negative_binomial(state, inflation=0.3, concentration=2.0)
     y = result["y"]
@@ -1713,8 +1623,6 @@ def test_gamma_response_shapes() -> None:
 
     Tests: shape contract for Gamma response.
     """
-    torch.manual_seed(230)
-    N, T = 4, 5
     state = linear_predictor(N, T, 3)
     result = gamma_response(state, concentration=2.0)
     assert result["y"].shape == (N, T, 1)
@@ -1726,7 +1634,6 @@ def test_gamma_response_mu_equals_exp_eta() -> None:
 
     Tests: definitional invariant — log link inverts to exp.
     """
-    torch.manual_seed(231)
     state = linear_predictor(4, 5, 3)
     result = gamma_response(state, concentration=2.0)
     assert torch.allclose(result["mu"], torch.exp(state["eta"]))
@@ -1737,7 +1644,6 @@ def test_gamma_response_y_positive() -> None:
 
     Tests: distribution support — Gamma values are strictly positive.
     """
-    torch.manual_seed(232)
     state = linear_predictor(8, 5, 3)
     result = gamma_response(state, concentration=2.0)
     assert (result["y"] > 0).all()
@@ -1790,7 +1696,6 @@ def test_gamma_response_extreme_eta_finite() -> None:
 
     Tests: numerical stability — exp(20) pushes into large-mu regime.
     """
-    torch.manual_seed(236)
     state = linear_predictor(4, 5, 3)
     state["eta"] = torch.full_like(state["eta"], 20.0)
     result = gamma_response(state, concentration=2.0)
@@ -1808,8 +1713,6 @@ def test_beta_response_shapes() -> None:
 
     Tests: shape contract for Beta response.
     """
-    torch.manual_seed(240)
-    N, T = 4, 5
     state = linear_predictor(N, T, 3)
     result = beta_response(state, precision=5.0)
     assert result["y"].shape == (N, T, 1)
@@ -1821,7 +1724,6 @@ def test_beta_response_mu_equals_sigmoid_eta() -> None:
 
     Tests: definitional invariant — logit link.
     """
-    torch.manual_seed(241)
     state = linear_predictor(4, 5, 3)
     result = beta_response(state, precision=5.0)
     assert torch.allclose(result["mu"], torch.sigmoid(state["eta"]))
@@ -1832,7 +1734,6 @@ def test_beta_response_y_bounded() -> None:
 
     Tests: distribution support — Beta values in open unit interval.
     """
-    torch.manual_seed(242)
     state = linear_predictor(8, 5, 3)
     result = beta_response(state, precision=5.0)
     assert (result["y"] > 0).all()
@@ -1910,8 +1811,6 @@ def test_log_normal_shapes() -> None:
 
     Tests: shape contract for log-normal response.
     """
-    torch.manual_seed(250)
-    N, T = 4, 5
     state = linear_predictor(N, T, 3)
     result = log_normal(state, std=0.5)
     assert result["y"].shape == (N, T, 1)
@@ -1923,7 +1822,6 @@ def test_log_normal_mu_equals_exp_eta_plus_half_var() -> None:
 
     Tests: definitional invariant — log-normal mean formula.
     """
-    torch.manual_seed(251)
     std = 0.5
     state = linear_predictor(4, 5, 3)
     result = log_normal(state, std=std)
@@ -1936,7 +1834,6 @@ def test_log_normal_y_positive() -> None:
 
     Tests: distribution support — log-normal values are strictly positive.
     """
-    torch.manual_seed(252)
     state = linear_predictor(8, 5, 3)
     result = log_normal(state, std=0.5)
     assert (result["y"] > 0).all()
@@ -1947,7 +1844,6 @@ def test_log_normal_std_zero_deterministic() -> None:
 
     Tests: degenerate case — zero variance implies deterministic output.
     """
-    torch.manual_seed(253)
     state = linear_predictor(4, 5, 3)
     result = log_normal(state, std=1e-6)
     expected = torch.exp(state["eta"])
@@ -1991,7 +1887,6 @@ def test_log_normal_extreme_eta_finite() -> None:
 
     Tests: numerical stability — exp(20) pushes into large-mu regime.
     """
-    torch.manual_seed(256)
     state = linear_predictor(4, 5, 3)
     state["eta"] = torch.full_like(state["eta"], 20.0)
     result = log_normal(state, std=0.5)

@@ -104,7 +104,6 @@ def test_lkj_covariance_shape() -> None:
     """Tests: output shape is [T, T] for T=5.
     Why: shape contract for the stochastic builder.
     """
-    torch.manual_seed(42)
     R = lkj_covariance(1.0, 5)
     assert R.shape[0] == 5
     assert R.shape[1] == 5
@@ -114,7 +113,6 @@ def test_lkj_covariance_symmetric() -> None:
     """Tests: R == R.T.
     Why: correlation matrices are symmetric; L@L.T should preserve this.
     """
-    torch.manual_seed(42)
     R = lkj_covariance(1.0, 4)
     assert torch.allclose(R, R.T)
 
@@ -123,7 +121,6 @@ def test_lkj_covariance_unit_diagonal() -> None:
     """Tests: diagonal entries are all 1.0.
     Why: correlation matrices have unit diagonal by definition.
     """
-    torch.manual_seed(42)
     R = lkj_covariance(1.0, 4)
     assert torch.allclose(R.diag(), torch.ones(4))
 
@@ -132,7 +129,6 @@ def test_lkj_covariance_positive_semidefinite() -> None:
     """Tests: all eigenvalues >= 0.
     Why: product L@L.T is PSD by construction; validates no numerical issues.
     """
-    torch.manual_seed(42)
     R = lkj_covariance(1.0, 5)
     eigenvalues = torch.linalg.eigvalsh(R)
     assert (eigenvalues >= -1e-6).all()
@@ -142,7 +138,6 @@ def test_lkj_covariance_entries_bounded() -> None:
     """Tests: all entries in [-1, 1].
     Why: correlation matrix entries must lie in this range.
     """
-    torch.manual_seed(42)
     R = lkj_covariance(1.0, 5)
     assert (R >= -1.0 - 1e-6).all()
     assert (R <= 1.0 + 1e-6).all()
@@ -152,7 +147,6 @@ def test_lkj_covariance_high_concentration_near_identity() -> None:
     """Tests: concentration=1000 produces off-diagonals near zero.
     Why: high concentration concentrates the LKJ distribution around identity.
     """
-    torch.manual_seed(42)
     R = lkj_covariance(1000.0, 4)
     off_diag = R - torch.eye(4)
     assert torch.allclose(off_diag, torch.zeros(4, 4), atol=0.1)
@@ -251,10 +245,10 @@ def test_residual_covariance_ar1_matches_direct() -> None:
 
 
 def test_residual_covariance_unsupported_type_raises() -> None:
-    """Tests: non-spec type raises TypeError.
-    Why: error path for unsupported covariance specifications.
+    """Tests: non-spec type is rejected by beartype.
+    Why: invalid covariance specification caught at the boundary.
     """
-    with pytest.raises(TypeError, match="Unsupported covariance"):
+    with pytest.raises(BeartypeCallHintParamViolation):
         residual_covariance(3, "invalid")  # type: ignore[arg-type]
 
 
@@ -270,7 +264,6 @@ def test_residual_covariance_always_square(spec: ResidualCovarianceSpec | None) 
     """Tests: all spec types produce [T, T] output.
     Why: shape contract must hold across all dispatch branches.
     """
-    torch.manual_seed(99)
     T = 4
     result = residual_covariance(T, spec)
     assert result.shape[0] == T

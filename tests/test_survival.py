@@ -8,7 +8,13 @@ from simulacra.functional import (
     linear_predictor,
     random_effects,
 )
-from simulacra.states import EventProcessState, RiskIndicatorState, has_failure_times
+from simulacra.states import (
+    CompetingRisksState,
+    EventProcessState,
+    ObservedState,
+    RiskIndicatorState,
+    has_failure_times,
+)
 from simulacra.survival import (
     censor_time,
     competing_risks,
@@ -27,6 +33,14 @@ P = 4
 K = 3
 
 
+def _gaussian_state() -> ObservedState:
+    return gaussian(linear_predictor(N, T, P), std=1.0, covariance=torch.eye(T))
+
+
+def _competing_risks_state() -> CompetingRisksState:
+    return competing_risks(linear(linear_predictor(N, T, P), out_features=K))
+
+
 # ---------------------------------------------------------------------------
 # event_time
 # ---------------------------------------------------------------------------
@@ -37,8 +51,7 @@ def test_event_time_shapes() -> None:
 
     Tests: shape contract — subject-level event time collapses T to 1.
     """
-    torch.manual_seed(0)
-    state = gaussian(linear_predictor(N, T, P), std=1.0, covariance=torch.eye(T))
+    state = _gaussian_state()
     result = event_time(state)
     assert result["event_time"].shape == (N, 1, 1)
 
@@ -48,8 +61,7 @@ def test_event_time_positive() -> None:
 
     Tests: distribution support — Exponential is strictly positive.
     """
-    torch.manual_seed(1)
-    state = gaussian(linear_predictor(N, T, P), std=1.0, covariance=torch.eye(T))
+    state = _gaussian_state()
     result = event_time(state)
     assert (result["event_time"] > 0).all()
 
@@ -118,8 +130,7 @@ def test_event_time_finite() -> None:
 
     Tests: numerical stability — no degenerate samples.
     """
-    torch.manual_seed(5)
-    state = gaussian(linear_predictor(N, T, P), std=1.0, covariance=torch.eye(T))
+    state = _gaussian_state()
     result = event_time(state)
     assert result["event_time"].isfinite().all()
 
@@ -134,7 +145,6 @@ def test_mixture_cure_cured_subjects_get_inf() -> None:
 
     Tests: definitional invariant — cure model sets event time to infinity.
     """
-    torch.manual_seed(10)
     n = 4
     X = torch.zeros(n, T, 1)
     beta = torch.zeros(n, 1, 1)
@@ -153,7 +163,6 @@ def test_mixture_cure_uncured_unchanged() -> None:
 
     Tests: definitional invariant — only cured subjects are modified.
     """
-    torch.manual_seed(11)
     n = 64
     state = bernoulli(linear_predictor(n, T, P), prevalence=0.99)
     state = event_time(state)
@@ -170,7 +179,6 @@ def test_mixture_cure_shape_unchanged() -> None:
 
     Tests: shape contract — mixture cure does not change dimensionality.
     """
-    torch.manual_seed(12)
     state = bernoulli(linear_predictor(N, T, P), prevalence=0.5)
     state = event_time(state)
     result = mixture_cure_censoring(state)
@@ -198,7 +206,6 @@ def test_mixture_cure_all_uncured() -> None:
 
     Tests: degenerate case — no cured subjects.
     """
-    torch.manual_seed(14)
     n = 8
     state = bernoulli(linear_predictor(n, T, P), prevalence=0.5)
     state = event_time(state)
@@ -219,8 +226,7 @@ def test_censor_time_shapes() -> None:
 
     Tests: shape contract.
     """
-    torch.manual_seed(20)
-    state = gaussian(linear_predictor(N, T, P), std=1.0, covariance=torch.eye(T))
+    state = _gaussian_state()
     result = censor_time(event_time(state))
     assert result["censor_time"].shape == (N, 1, 1)
 
@@ -230,8 +236,7 @@ def test_censor_time_within_time_range() -> None:
 
     Tests: distribution support — Uniform bounds.
     """
-    torch.manual_seed(21)
-    state = gaussian(linear_predictor(N, T, P), std=1.0, covariance=torch.eye(T))
+    state = _gaussian_state()
     result = censor_time(event_time(state))
     time = result["time"]
     min_time = torch.amin(time, dim=1, keepdim=True)
@@ -267,8 +272,7 @@ def test_survival_indicators_shapes() -> None:
 
     Tests: shape contract for all survival indicator outputs.
     """
-    torch.manual_seed(30)
-    state = gaussian(linear_predictor(N, T, P), std=1.0, covariance=torch.eye(T))
+    state = _gaussian_state()
     result = survival_indicators(censor_time(event_time(state)))
     assert result["indicator"].shape == (N, 1, 1)
     assert result["observed_time"].shape == (N, 1, 1)
@@ -280,8 +284,7 @@ def test_survival_indicator_binary() -> None:
 
     Tests: distribution support — event indicator is binary.
     """
-    torch.manual_seed(31)
-    state = gaussian(linear_predictor(N, T, P), std=1.0, covariance=torch.eye(T))
+    state = _gaussian_state()
     result = survival_indicators(censor_time(event_time(state)))
     ind = result["indicator"]
     assert ((ind == 0.0) | (ind == 1.0)).all()
@@ -292,8 +295,7 @@ def test_survival_observed_time_is_minimum() -> None:
 
     Tests: definitional invariant — observed time is the minimum.
     """
-    torch.manual_seed(32)
-    state = gaussian(linear_predictor(N, T, P), std=1.0, covariance=torch.eye(T))
+    state = _gaussian_state()
     result = survival_indicators(censor_time(event_time(state)))
     expected = torch.minimum(result["event_time"], result["censor_time"])
     assert torch.equal(result["observed_time"], expected)
@@ -304,8 +306,7 @@ def test_survival_indicator_matches_comparison() -> None:
 
     Tests: definitional invariant — indicator encodes which came first.
     """
-    torch.manual_seed(33)
-    state = gaussian(linear_predictor(N, T, P), std=1.0, covariance=torch.eye(T))
+    state = _gaussian_state()
     result = survival_indicators(censor_time(event_time(state)))
     expected = (result["event_time"] < result["censor_time"]).float()
     assert torch.equal(result["indicator"], expected)
@@ -316,8 +317,7 @@ def test_survival_time_to_event_definition() -> None:
 
     Tests: definitional invariant — time_to_event is the difference.
     """
-    torch.manual_seed(34)
-    state = gaussian(linear_predictor(N, T, P), std=1.0, covariance=torch.eye(T))
+    state = _gaussian_state()
     result = survival_indicators(censor_time(event_time(state)))
     expected = result["observed_time"] - result["time"]
     assert torch.equal(result["time_to_event"], expected)
@@ -328,8 +328,7 @@ def test_survival_observed_time_nonneg() -> None:
 
     Tests: distribution support — times are non-negative.
     """
-    torch.manual_seed(35)
-    state = gaussian(linear_predictor(N, T, P), std=1.0, covariance=torch.eye(T))
+    state = _gaussian_state()
     result = survival_indicators(censor_time(event_time(state)))
     assert (result["observed_time"] >= 0).all()
 
@@ -339,8 +338,7 @@ def test_survival_observed_time_leq_event_and_censor() -> None:
 
     Tests: theorem-derived — min(a, b) <= a and min(a, b) <= b.
     """
-    torch.manual_seed(36)
-    state = gaussian(linear_predictor(N, T, P), std=1.0, covariance=torch.eye(T))
+    state = _gaussian_state()
     result = survival_indicators(censor_time(event_time(state)))
     assert (result["observed_time"] <= result["event_time"]).all()
     assert (result["observed_time"] <= result["censor_time"]).all()
@@ -351,7 +349,6 @@ def test_survival_pipeline_end_to_end() -> None:
 
     Tests: integration — all keys present with consistent shapes.
     """
-    torch.manual_seed(37)
     state = linear_predictor(N, T, P)
     state = gaussian(state, std=0.5, covariance=torch.eye(T))
     state = event_time(state)
@@ -369,7 +366,6 @@ def test_survival_indicator_event_implies_event_is_observed_time() -> None:
 
     Tests: definitional invariant — uncensored subjects have observed_time = event_time.
     """
-    torch.manual_seed(38)
     state = gaussian(linear_predictor(64, T, P), std=1.0, covariance=torch.eye(T))
     result = survival_indicators(censor_time(event_time(state)))
     events = result["indicator"] == 1.0
@@ -384,7 +380,6 @@ def test_survival_indicator_censored_implies_censor_is_observed_time() -> None:
 
     Tests: definitional invariant — censored subjects have observed_time = censor_time.
     """
-    torch.manual_seed(39)
     state = gaussian(linear_predictor(64, T, P), std=1.0, covariance=torch.eye(T))
     result = survival_indicators(censor_time(event_time(state)))
     censored = result["indicator"] == 0.0
@@ -404,8 +399,7 @@ def test_competing_risks_shapes() -> None:
 
     Tests: shape contract for competing risks.
     """
-    torch.manual_seed(40)
-    result = competing_risks(linear(linear_predictor(N, T, P), out_features=K))
+    result = _competing_risks_state()
     assert result["failure_times"].shape == (N, T, K)
     assert result["tokens"].shape == (N, T, 1)
     assert result["event_mask"].shape == (N, T, K)
@@ -416,8 +410,7 @@ def test_competing_risks_failure_times_positive() -> None:
 
     Tests: distribution support — Weibull is strictly positive.
     """
-    torch.manual_seed(41)
-    result = competing_risks(linear(linear_predictor(N, T, P), out_features=K))
+    result = _competing_risks_state()
     assert (result["failure_times"] > 0).all()
 
 
@@ -426,8 +419,7 @@ def test_competing_risks_tokens_equal_argmin() -> None:
 
     Tests: definitional invariant — winning risk is the one that fails first.
     """
-    torch.manual_seed(42)
-    result = competing_risks(linear(linear_predictor(N, T, P), out_features=K))
+    result = _competing_risks_state()
     expected = result["failure_times"].argmin(dim=-1, keepdim=True)
     assert torch.equal(result["tokens"], expected)
 
@@ -437,8 +429,7 @@ def test_competing_risks_event_mask_one_hot() -> None:
 
     Tests: algebraic invariant — competing risks are mutually exclusive.
     """
-    torch.manual_seed(43)
-    result = competing_risks(linear(linear_predictor(N, T, P), out_features=K))
+    result = _competing_risks_state()
     assert result["event_mask"].dtype == torch.bool
     assert (result["event_mask"].sum(dim=-1) == 1).all()
 
@@ -471,8 +462,7 @@ def test_risk_indicators_one_hot() -> None:
 
     Tests: algebraic invariant — one-hot encoding of winning risk.
     """
-    torch.manual_seed(50)
-    state = competing_risks(linear(linear_predictor(N, T, P), out_features=K))
+    state = _competing_risks_state()
     result = risk_indicators(state)
     assert result["indicator"].shape == (N, T, K)
     assert torch.allclose(result["indicator"].sum(dim=-1), torch.ones(N, T))
@@ -483,8 +473,7 @@ def test_risk_indicators_event_time_equals_min() -> None:
 
     Tests: definitional invariant — event time is the first failure, broadcast.
     """
-    torch.manual_seed(51)
-    state = competing_risks(linear(linear_predictor(N, T, P), out_features=K))
+    state = _competing_risks_state()
     result = risk_indicators(state)
     assert has_failure_times(result)
     min_ft = result["failure_times"].min(dim=-1, keepdim=True)[0]
@@ -496,8 +485,7 @@ def test_risk_indicators_event_time_positive() -> None:
 
     Tests: distribution support — derived from positive failure_times.
     """
-    torch.manual_seed(52)
-    state = competing_risks(linear(linear_predictor(N, T, P), out_features=K))
+    state = _competing_risks_state()
     result = risk_indicators(state)
     assert (result["event_time"] > 0).all()
 
@@ -507,10 +495,7 @@ def test_risk_indicators_event_time_leq_all_failure_times() -> None:
 
     Tests: theorem-derived — min(a1,...,aK) <= ak.
     """
-    torch.manual_seed(53)
-    result = risk_indicators(
-        competing_risks(linear(linear_predictor(N, T, P), out_features=K))
-    )
+    result = risk_indicators(_competing_risks_state())
     assert has_failure_times(result)
     assert (result["event_time"] <= result["failure_times"]).all()
 
@@ -525,7 +510,6 @@ def test_independent_events_shapes() -> None:
 
     Tests: shape contract and dtype.
     """
-    torch.manual_seed(60)
     result = independent_events(linear(linear_predictor(N, T, P), out_features=K))
     assert result["event_mask"].shape == (N, T, K)
     assert result["event_mask"].dtype == torch.bool
@@ -536,7 +520,6 @@ def test_independent_events_multilabel() -> None:
 
     Tests: multilabel property — events are independent, not mutually exclusive.
     """
-    torch.manual_seed(61)
     state = linear(linear_predictor(64, 20, P), out_features=K)
     result = independent_events(state, prevalence=0.5)
     events_per_tp = result["event_mask"].sum(dim=-1)
@@ -582,8 +565,7 @@ def test_multi_event_shapes() -> None:
 
     Tests: shape contract for multi-event encoding.
     """
-    torch.manual_seed(70)
-    state = competing_risks(linear(linear_predictor(N, T, P), out_features=K))
+    state = _competing_risks_state()
     result = multi_event(state, horizon=10.0)
     assert result["event_time"].shape == (N, T, K)
     assert result["indicator"].shape == (N, T, K)
@@ -594,9 +576,8 @@ def test_multi_event_horizon_clamp() -> None:
 
     Tests: numerical constraint — horizon ceiling is respected.
     """
-    torch.manual_seed(71)
     horizon = 5.0
-    state = competing_risks(linear(linear_predictor(N, T, P), out_features=K))
+    state = _competing_risks_state()
     result = multi_event(state, horizon=horizon)
     assert result["event_time"].max().item() <= horizon
 
@@ -606,8 +587,7 @@ def test_multi_event_indicator_binary() -> None:
 
     Tests: distribution support — event indicators are binary.
     """
-    torch.manual_seed(72)
-    state = competing_risks(linear(linear_predictor(N, T, P), out_features=K))
+    state = _competing_risks_state()
     result = multi_event(state, horizon=10.0)
     ind = result["indicator"]
     assert ((ind == 0.0) | (ind == 1.0)).all()
@@ -618,8 +598,7 @@ def test_multi_event_nonneg() -> None:
 
     Tests: distribution support — time-to-event is non-negative.
     """
-    torch.manual_seed(73)
-    state = competing_risks(linear(linear_predictor(N, T, P), out_features=K))
+    state = _competing_risks_state()
     result = multi_event(state, horizon=10.0)
     assert (result["event_time"] >= 0).all()
 
@@ -629,7 +608,6 @@ def test_multi_event_works_with_independent_events() -> None:
 
     Tests: integration — multi_event is polymorphic over event process.
     """
-    torch.manual_seed(74)
     state = independent_events(
         linear(linear_predictor(N, T, P), out_features=K), prevalence=0.3
     )
@@ -643,9 +621,8 @@ def test_multi_event_indicator_zero_at_horizon() -> None:
 
     Tests: definitional invariant — events at horizon are treated as censored.
     """
-    torch.manual_seed(75)
     horizon = 5.0
-    state = competing_risks(linear(linear_predictor(N, T, P), out_features=K))
+    state = _competing_risks_state()
     result = multi_event(state, horizon=horizon)
     at_horizon = result["event_time"] == horizon
     if at_horizon.any():
@@ -662,12 +639,9 @@ def test_discretize_risk_shapes() -> None:
 
     Tests: shape contract for discretization.
     """
-    torch.manual_seed(80)
     boundaries = torch.tensor([0.0, 1.0, 2.0, 5.0, 10.0])
     J = len(boundaries) - 1
-    state = risk_indicators(
-        competing_risks(linear(linear_predictor(N, T, P), out_features=K))
-    )
+    state = risk_indicators(_competing_risks_state())
     result = discretize_risk(state, boundaries)
     assert result["discrete_event_time"].shape == (N, T, K, J)
 
@@ -677,11 +651,8 @@ def test_discretize_risk_values_bounded() -> None:
 
     Tests: distribution support — fractional exposure is bounded.
     """
-    torch.manual_seed(81)
     boundaries = torch.tensor([0.0, 1.0, 2.0, 5.0])
-    state = risk_indicators(
-        competing_risks(linear(linear_predictor(N, T, P), out_features=K))
-    )
+    state = risk_indicators(_competing_risks_state())
     result = discretize_risk(state, boundaries)
     det = result["discrete_event_time"]
     assert (det >= 0.0).all()
@@ -693,11 +664,8 @@ def test_discretize_risk_single_interval() -> None:
 
     Tests: degenerate case — single bin.
     """
-    torch.manual_seed(83)
     boundaries = torch.tensor([0.0, 10.0])
-    state = risk_indicators(
-        competing_risks(linear(linear_predictor(N, T, P), out_features=K))
-    )
+    state = risk_indicators(_competing_risks_state())
     result = discretize_risk(state, boundaries)
     assert result["discrete_event_time"].shape == (N, T, K, 1)
 
@@ -707,7 +675,6 @@ def test_discretize_risk_full_chain() -> None:
 
     Tests: integration — full functional chain produces all expected keys.
     """
-    torch.manual_seed(84)
     boundaries = torch.tensor([0.0, 0.5, 1.0, 2.0])
     state = linear_predictor(N, T, P)
     state = linear(state, out_features=K)
@@ -773,7 +740,6 @@ def test_event_time_large_negative_eta() -> None:
 
     Tests: numerical stability — extreme negative eta doesn't produce NaN/Inf.
     """
-    torch.manual_seed(6)
     n = 64
     X = torch.full((n, 1, 1), -20.0)
     beta = torch.ones(n, 1, 1)
@@ -791,7 +757,6 @@ def test_event_time_large_positive_eta() -> None:
 
     Tests: numerical stability — extreme positive eta doesn't produce zeros.
     """
-    torch.manual_seed(7)
     n = 64
     X = torch.full((n, 1, 1), 20.0)
     beta = torch.ones(n, 1, 1)
@@ -814,7 +779,6 @@ def test_competing_risks_K1_tokens_all_zero() -> None:
 
     Tests: degenerate case — single risk always wins.
     """
-    torch.manual_seed(47)
     result = competing_risks(linear(linear_predictor(N, T, P), out_features=1))
     assert (result["tokens"] == 0).all()
 
@@ -824,7 +788,6 @@ def test_risk_indicators_K1_indicator_all_ones() -> None:
 
     Tests: degenerate case — single risk yields all-ones indicator.
     """
-    torch.manual_seed(54)
     state = competing_risks(linear(linear_predictor(N, T, P), out_features=1))
     result = risk_indicators(state)
     assert (result["indicator"] == 1.0).all()
@@ -873,7 +836,6 @@ def test_multi_event_suffix_minimum_oracle() -> None:
 
     Tests: closed-form oracle — exact expected output from manual algorithm trace.
     """
-    torch.manual_seed(76)
     time = torch.tensor([[[0], [1], [2], [3]]], dtype=torch.float)  # [1, 4, 1]
     event_mask = torch.tensor(
         [[[False, False], [True, False], [False, True], [False, False]]]
@@ -900,7 +862,6 @@ def test_discretize_risk_hand_oracle() -> None:
 
     Tests: closed-form oracle — exact expected output from manual formula trace.
     """
-    torch.manual_seed(86)
     boundaries = torch.tensor([0.0, 1.0, 2.0, 3.0, 5.0])
     # Event case
     state_event = RiskIndicatorState(
@@ -944,8 +905,7 @@ def test_multi_event_horizon_none_inferred() -> None:
 
     Tests: untested code path — horizon=None branch in multi_event.
     """
-    torch.manual_seed(77)
-    state = competing_risks(linear(linear_predictor(N, T, P), out_features=K))
+    state = _competing_risks_state()
     result = multi_event(state, horizon=None)
     assert result["event_time"].isfinite().all()
     max_et = result["event_time"].max()
@@ -964,11 +924,8 @@ def test_discretize_risk_exposure_monotonic() -> None:
 
     Tests: algebraic invariant — censored exposure decreases monotonically.
     """
-    torch.manual_seed(85)
     boundaries = torch.tensor([0.0, 1.0, 2.0, 3.0, 5.0, 10.0])
-    state = risk_indicators(
-        competing_risks(linear(linear_predictor(N, T, P), out_features=K))
-    )
+    state = risk_indicators(_competing_risks_state())
     # Force all censored
     state["indicator"] = torch.zeros_like(state["indicator"])
     result = discretize_risk(state, boundaries)
@@ -988,7 +945,6 @@ def test_competing_risks_shapes_parametrized(n: int, t: int, k: int) -> None:
 
     Tests: parametrized shape contract.
     """
-    torch.manual_seed(40)
     result = competing_risks(linear(linear_predictor(n, t, P), out_features=k))
     assert result["failure_times"].shape == (n, t, k)
     assert result["tokens"].shape == (n, t, 1)
@@ -1001,7 +957,6 @@ def test_multi_event_shapes_parametrized(n: int, t: int, k: int) -> None:
 
     Tests: parametrized shape contract.
     """
-    torch.manual_seed(70)
     state = competing_risks(linear(linear_predictor(n, t, P), out_features=k))
     result = multi_event(state, horizon=10.0)
     assert result["event_time"].shape == (n, t, k)
