@@ -1,6 +1,6 @@
-# mimetic
+# Simulacra
 
-`mimetic` generates synthetic longitudinal datasets for supervised learning and
+`simulacra` generates synthetic longitudinal datasets for supervised learning and
 time-to-event modeling with PyTorch and TensorDict.
 
 It supports:
@@ -13,7 +13,7 @@ It supports:
 
 ## Installation
 
-`mimetic` currently targets Python 3.13+.
+`simulacra` currently targets Python 3.13+.
 
 Install from this repository with `uv`:
 
@@ -29,7 +29,7 @@ uv sync --dev
 
 ## Quick Start
 
-`Simulation` provides a fluent interface for building synthetic datasets.
+The `Simulation` object provides a fluent interface for building synthetic datasets.
 Construction builds the linear predictor (eta = Xβ); call `.random_effects()`
 to upgrade to a mixed model (eta = Xβ + Zγ). Then choose a response
 distribution: `.gaussian()`, `.bernoulli()`, `.poisson()`, etc.
@@ -37,7 +37,7 @@ distribution: `.gaussian()`, `.bernoulli()`, `.poisson()`, etc.
 ### Gaussian regression
 
 ```python
-from mimetic import Simulation
+from simulacra import Simulation
 
 data = (
     Simulation(num_samples=1024, num_timepoints=10, num_features=8)
@@ -66,7 +66,7 @@ TensorDict(
 ### Binary classification
 
 ```python
-from mimetic import Simulation
+from simulacra import Simulation
 
 data = (
     Simulation(num_samples=1024, num_timepoints=10, num_features=8)
@@ -94,7 +94,7 @@ TensorDict(
 ### Mixture-cure survival with tokenized sequences
 
 ```python
-from mimetic import Simulation
+from simulacra import Simulation
 
 data = (
     Simulation(
@@ -164,11 +164,11 @@ distribution to sample observations:
 
 ## Notes on Structure
 
-- `src/mimetic/simulation.py` — fluent `Simulation` interface
-- `src/mimetic/functional.py` — reusable building-block functions
-- `src/mimetic/covariance.py` — covariance construction (random-effects and residual)
-- `src/mimetic/survival.py` — survival analysis functions
-- `src/mimetic/states.py` — TypedDict state definitions for the pipeline
+- `src/simulacra/simulation.py` — fluent `Simulation` interface
+- `src/simulacra/functional.py` — reusable building-block functions
+- `src/simulacra/covariance.py` — covariance construction (random-effects and residual)
+- `src/simulacra/survival.py` — survival analysis functions
+- `src/simulacra/states.py` — TypedDict state definitions for the pipeline
 
 ## Development
 

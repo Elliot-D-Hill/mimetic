@@ -1,10 +1,12 @@
 import pytest
 import torch
+from beartype.roar import BeartypeCallHintParamViolation
 
 from simulacra.covariance import (
     AR1Covariance,
     IsotropicCovariance,
     LKJCovariance,
+    ResidualCovarianceSpec,
     ar1_covariance,
     isotropic_covariance,
     lkj_covariance,
@@ -80,11 +82,12 @@ def test_ar1_covariance_rho_zero_is_identity() -> None:
     assert torch.equal(ar1_covariance(0.0, 4), torch.eye(4))
 
 
-def test_ar1_covariance_rho_one_is_ones() -> None:
-    """Tests: rho=1 produces all-ones matrix.
-    Why: degenerate case where 1^|j-k|=1 everywhere.
+def test_ar1_covariance_rho_one_rejected() -> None:
+    """Tests: rho=1.0 is rejected by beartype.
+    Why: produces a singular (rank-1) covariance matrix.
     """
-    assert torch.equal(ar1_covariance(1.0, 3), torch.ones(3, 3))
+    with pytest.raises(BeartypeCallHintParamViolation):
+        ar1_covariance(1.0, 3)
 
 
 def test_ar1_covariance_single_timepoint() -> None:
@@ -263,12 +266,12 @@ def test_residual_covariance_unsupported_type_raises() -> None:
     [None, IsotropicCovariance(), AR1Covariance(0.6), LKJCovariance(2.0)],
     ids=["none", "isotropic", "ar1", "lkj"],
 )
-def test_residual_covariance_always_square(spec: object) -> None:
+def test_residual_covariance_always_square(spec: ResidualCovarianceSpec | None) -> None:
     """Tests: all spec types produce [T, T] output.
     Why: shape contract must hold across all dispatch branches.
     """
     torch.manual_seed(99)
     T = 4
-    result = residual_covariance(T, spec)  # type: ignore[arg-type]
+    result = residual_covariance(T, spec)
     assert result.shape[0] == T
     assert result.shape[1] == T

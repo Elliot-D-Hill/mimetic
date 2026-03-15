@@ -5,12 +5,14 @@ from simulacra import Simulation
 torch.manual_seed(0)
 
 data = Simulation(200, 8, 3).ordinal(num_classes=4).data
-mu = data["mu"]  # [N, T, K]
-y = data["y"][:, :, 0]  # [N, T]
+mu = data["mu"]
+y = data["y"]
+assert isinstance(mu, torch.Tensor) and isinstance(y, torch.Tensor)
+y = y[:, :, 0]  # [N, T]
 
 K = mu.shape[2]
-mean_probs = mu.mean(dim=(0, 1))  # [K]
-counts = torch.bincount(y.flatten().long(), minlength=K).float()
+mean_probs = mu.reshape(-1, mu.shape[2]).mean(0)  # [K]
+counts = torch.bincount(y.long().flatten(), minlength=K).float()
 counts = counts / counts.sum()
 
 fig, axes = plt.subplots(1, 2, figsize=(6, 3))

@@ -1,15 +1,22 @@
+"""
+Covariance structures for residual and random-effects terms.
+"""
+
 from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import TypeAlias
 
 import torch
 import torch.distributions as dist
+from beartype import beartype
 from torch import Tensor
+
+from .types import Correlation, PositiveFloat
 
 
 @dataclass(frozen=True)
 class IsotropicCovariance:
-    """Identity residual covariance Sigma = I.
+    """
+    Identity residual covariance Sigma = I.
 
     See Also
     --------
@@ -20,11 +27,12 @@ class IsotropicCovariance:
 
 @dataclass(frozen=True)
 class AR1Covariance:
-    """AR(1) residual covariance Sigma[j,k] = rho^|j-k|.
+    """
+    AR(1) residual covariance Sigma[j,k] = rho^|j-k|.
 
-    Parameters
+    Attributes
     ----------
-    correlation
+    correlation : float
         Autocorrelation parameter in (0, 1).
 
     See Also
@@ -33,16 +41,17 @@ class AR1Covariance:
     ar1_covariance : Build the matrix.
     """
 
-    correlation: float = 0.9
+    correlation: Correlation = 0.9
 
 
 @dataclass(frozen=True)
 class LKJCovariance:
-    """Unstructured correlation matrix sampled from an LKJ distribution.
+    """
+    Unstructured correlation matrix sampled from an LKJ distribution.
 
-    Parameters
+    Attributes
     ----------
-    concentration
+    concentration : float
         LKJ concentration; 1.0 gives uniform over correlation matrices.
 
     See Also
@@ -51,18 +60,19 @@ class LKJCovariance:
     lkj_covariance : Build the matrix.
     """
 
-    concentration: float = 1.0
+    concentration: PositiveFloat = 1.0
 
 
-ResidualCovarianceSpec: TypeAlias = IsotropicCovariance | AR1Covariance | LKJCovariance
+type ResidualCovarianceSpec = IsotropicCovariance | AR1Covariance | LKJCovariance
 
 
 def isotropic_covariance(num_timepoints: int) -> Tensor:
-    """Build identity covariance Sigma = I (no temporal correlation).
+    """
+    Build identity covariance Sigma = I (no temporal correlation).
 
     Parameters
     ----------
-    num_timepoints
+    num_timepoints : int
         Number of time points T.
 
     Returns
@@ -84,14 +94,16 @@ def isotropic_covariance(num_timepoints: int) -> Tensor:
     return torch.eye(num_timepoints)  # [T, T]
 
 
-def ar1_covariance(correlation: float, num_timepoints: int) -> Tensor:
-    """Build AR(1) residual covariance Sigma[j,k] = rho^|j-k|.
+@beartype
+def ar1_covariance(correlation: Correlation, num_timepoints: int) -> Tensor:
+    """
+    Build AR(1) residual covariance Sigma[j,k] = rho^|j-k|.
 
     Parameters
     ----------
-    correlation
+    correlation : float
         Autocorrelation parameter in (0, 1).
-    num_timepoints
+    num_timepoints : int
         Number of time points T.
 
     Returns
@@ -125,14 +137,16 @@ def ar1_covariance(correlation: float, num_timepoints: int) -> Tensor:
     return correlation**diff  # [T, T]
 
 
-def lkj_covariance(concentration: float, num_timepoints: int) -> Tensor:
-    """Sample an unstructured correlation matrix from the LKJ distribution.
+@beartype
+def lkj_covariance(concentration: PositiveFloat, num_timepoints: int) -> Tensor:
+    """
+    Sample an unstructured correlation matrix from the LKJ distribution.
 
     Parameters
     ----------
-    concentration
+    concentration : float
         LKJ concentration; 1.0 gives uniform over correlation matrices.
-    num_timepoints
+    num_timepoints : int
         Dimension of the correlation matrix T.
 
     Returns
@@ -156,16 +170,19 @@ def lkj_covariance(concentration: float, num_timepoints: int) -> Tensor:
     return L @ L.T  # [T, T]
 
 
+@beartype
 def random_effects_covariance(
-    std: Sequence[float] | Tensor | float, correlation: Tensor | float = 0.0
+    std: Sequence[PositiveFloat] | Tensor | PositiveFloat,
+    correlation: Tensor | Correlation = 0.0,
 ) -> Tensor:
-    """Build the random-effects covariance Q = S R S.
+    """
+    Build the random-effects covariance Q = S R S.
 
     Parameters
     ----------
-    std
+    std : Sequence[float] | Tensor | float
         Standard deviations for each random effect; length determines q.
-    correlation
+    correlation : Tensor | float
         Off-diagonal correlation. Scalar gives compound symmetry
         R = I(1-rho) + J*rho; matrix gives a user-provided [q, q]
         correlation matrix.
@@ -212,16 +229,17 @@ def random_effects_covariance(
 def residual_covariance(
     num_timepoints: int, covariance: ResidualCovarianceSpec | None = None
 ) -> Tensor:
-    """Build the within-subject residual covariance Sigma.
+    """
+    Build the within-subject residual covariance Sigma.
 
     Dispatches to structure-specific builders based on the covariance
     specification.
 
     Parameters
     ----------
-    num_timepoints
+    num_timepoints : int
         Number of time points T.
-    covariance
+    covariance : ResidualCovarianceSpec | None
         Covariance specification; defaults to isotropic (identity).
 
     Returns

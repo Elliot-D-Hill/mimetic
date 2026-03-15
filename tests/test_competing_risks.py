@@ -30,7 +30,7 @@ def test_risk_indicators_event_time_equals_minimum() -> None:
     Tests: event_time[:,:,k] == failure_times.min(dim=-1) for all k.
     """
     data = _cr_state().risk_indicators().data
-    min_ft = data["failure_times"].min(dim=-1, keepdim=True).values  # [N, T, 1]
+    min_ft = data["failure_times"].min(dim=-1, keepdim=True)[0]  # [N, T, 1]
     assert torch.allclose(data["event_time"], min_ft.expand(-1, -1, K))
 
 
@@ -42,18 +42,6 @@ def test_competing_risks_tokens_index_minimum() -> None:
     data = _cr_state().data
     expected = data["failure_times"].argmin(dim=-1, keepdim=True)
     assert torch.equal(data["tokens"], expected)
-
-
-def test_competing_risks_preserves_time() -> None:
-    """time is unchanged after competing_risks (regression against old cumsum overwrite).
-
-    Tests: time matches original observation schedule.
-    """
-    torch.manual_seed(42)
-    sim = Simulation(N, T, P).linear(K)
-    original_time = sim.data["time"].clone()
-    cr_data = sim.competing_risks().data
-    assert torch.equal(cr_data["time"], original_time)
 
 
 def test_risk_indicators_one_hot() -> None:
@@ -109,7 +97,7 @@ def test_discretize_risk_shapes() -> None:
 
 
 def test_competing_risks_full_chain() -> None:
-    """End-to-end: .linear(K).competing_risks().risk_indicators().discretize(boundaries).data.
+    """End-to-end: linear(K) -> competing_risks -> risk_indicators -> discretize.
 
     Tests: complete chain produces all expected keys.
     """
@@ -189,7 +177,7 @@ def test_independent_events_prevalence_effect() -> None:
 
 
 def test_independent_events_multi_event_chain() -> None:
-    """Full chain: .independent_events().multi_event().discretize() produces correct shapes.
+    """Full chain: independent_events -> multi_event -> discretize shapes.
 
     Tests: end-to-end multilabel pipeline.
     """

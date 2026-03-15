@@ -1,6 +1,9 @@
+"""Survival analysis and competing-risks simulation primitives."""
+
 import torch
 import torch.distributions as dist
 import torch.nn.functional as F
+from beartype import beartype
 from torch import Tensor
 
 from .states import (
@@ -14,17 +17,19 @@ from .states import (
     RiskIndicatorState,
     SurvivalState,
 )
+from .types import PositiveFloat, UnitInterval
 
 
 def event_time(state: ObservedState) -> EventTimeState:
-    """Sample event time from an exponential distribution.
+    """
+    Sample event time from an exponential distribution.
 
     Aggregates ``eta`` to subject level via mean over timepoints, then
     samples a single event time per subject.
 
     Parameters
     ----------
-    state
+    state : ObservedState
         Must contain ``eta`` [N, T, 1].
 
     Returns
@@ -57,11 +62,12 @@ def event_time(state: ObservedState) -> EventTimeState:
 
 
 def mixture_cure_censoring(state: EventTimeState) -> EventTimeState:
-    """Set event time to infinity for cured subjects (y == 0 everywhere).
+    """
+    Set event time to infinity for cured subjects (y == 0 everywhere).
 
     Parameters
     ----------
-    state
+    state : EventTimeState
         Must contain ``y`` [N, T, 1] and ``event_time`` [N, 1, 1].
 
     Returns
@@ -94,11 +100,12 @@ def mixture_cure_censoring(state: EventTimeState) -> EventTimeState:
 
 
 def censor_time(state: EventTimeState) -> CensoredState:
-    """Sample uniform censor time within the observation window.
+    """
+    Sample uniform censor time within the observation window.
 
     Parameters
     ----------
-    state
+    state : EventTimeState
         Must contain ``time`` [N, T, 1].
 
     Returns
@@ -132,11 +139,12 @@ def censor_time(state: EventTimeState) -> CensoredState:
 
 
 def survival_indicators(state: CensoredState) -> SurvivalState:
-    """Compute survival indicators from event and censor times.
+    """
+    Compute survival indicators from event and censor times.
 
     Parameters
     ----------
-    state
+    state : CensoredState
         Must contain ``event_time`` [N, 1, 1], ``censor_time`` [N, 1, 1],
         and ``time`` [N, T, 1].
 
@@ -185,10 +193,12 @@ def survival_indicators(state: CensoredState) -> SurvivalState:
 # ---------------------------------------------------------------------------
 
 
+@beartype
 def independent_events(
-    state: PredictorState, prevalence: float = 0.1
+    state: PredictorState, prevalence: UnitInterval = 0.1
 ) -> EventProcessState:
-    """Generate a multilabel event mask via independent Bernoulli draws.
+    """
+    Generate a multilabel event mask via independent Bernoulli draws.
 
     Each risk column in ``eta`` [N, T, K] is converted to an event
     probability using a logit shift (same pattern as :func:`bernoulli`).
@@ -196,9 +206,9 @@ def independent_events(
 
     Parameters
     ----------
-    state
+    state : PredictorState
         Must contain ``eta`` [N, T, K].
-    prevalence
+    prevalence : float
         Base rate per risk; shifts logits before sigmoid.
 
     Returns
@@ -235,18 +245,20 @@ def independent_events(
 # ---------------------------------------------------------------------------
 
 
+@beartype
 def competing_risks(
-    state: PredictorState, shape: float | Tensor = 1.0
+    state: PredictorState, shape: PositiveFloat | Tensor = 1.0
 ) -> CompetingRisksState:
-    """Sample per-risk failure times from Weibull distributions.
+    """
+    Sample per-risk failure times from Weibull distributions.
 
     Each column of ``eta`` [N, T, K] parameterizes one risk's Weibull scale.
 
     Parameters
     ----------
-    state
+    state : PredictorState
         Must contain ``eta`` [N, T, K].
-    shape
+    shape : float or Tensor
         Weibull shape parameter; 1.0 reduces to exponential.
 
     Returns
@@ -286,11 +298,12 @@ def competing_risks(
 
 
 def risk_indicators(state: CompetingRisksState) -> RiskIndicatorState:
-    """One-hot encode the winning risk and broadcast event time to [N, T, K].
+    """
+    One-hot encode the winning risk and broadcast event time to [N, T, K].
 
     Parameters
     ----------
-    state
+    state : CompetingRisksState
         Must contain ``failure_times`` [N, T, K] and ``tokens`` [N, T, 1].
 
     Returns
@@ -326,7 +339,8 @@ def risk_indicators(state: CompetingRisksState) -> RiskIndicatorState:
 def multi_event(
     state: EventProcessState, horizon: float | Tensor | None = None
 ) -> RiskIndicatorState:
-    """Compute per-risk TTE via suffix-minimum over the observation schedule.
+    """
+    Compute per-risk TTE via suffix-minimum over the observation schedule.
 
     The event mask can come from either ``competing_risks`` (single-winner,
     multiclass) or ``independent_events`` (multi-hot, multilabel).  The
@@ -334,9 +348,9 @@ def multi_event(
 
     Parameters
     ----------
-    state
+    state : EventProcessState
         Must contain ``event_mask`` [N, T, K] and ``time`` [N, T, 1].
-    horizon
+    horizon : float or Tensor or None
         Clamp ceiling for event times; inferred from data if omitted.
 
     Returns
@@ -367,16 +381,17 @@ def multi_event(
     reversed_ = torch.flip(event_times, dims=[1])
     suffix_min = torch.flip(torch.cummin(reversed_, dim=1).values, dims=[1])
     next_time = F.pad(suffix_min[:, 1:], (0, 0, 0, 1), value=torch.inf)
-    et = next_time - time  # [N, T, K]
+    event_time = next_time - time  # [N, T, K]
     if horizon is None:
-        horizon = et[et.isfinite()].max()
-    et = et.clamp(max=horizon)
-    indicator = (et < horizon).to(et.dtype)  # [N, T, K]
-    return RiskIndicatorState(**state, event_time=et, indicator=indicator)
+        horizon = event_time[event_time.isfinite()].max()
+    event_time = event_time.clamp(max=horizon)
+    indicator = (event_time < horizon).to(event_time.dtype)  # [N, T, K]
+    return RiskIndicatorState(**state, event_time=event_time, indicator=indicator)
 
 
 def discretize_risk(state: RiskIndicatorState, boundaries: Tensor) -> DiscreteRiskState:
-    """Discretize continuous event times into interval bins.
+    """
+    Discretize continuous event times into interval bins.
 
     The combined encoding is designed for discrete failure time NLL losses
     (DeepHit-style).  For piecewise exponential losses (MOTOR/PEANN-style),
@@ -385,9 +400,9 @@ def discretize_risk(state: RiskIndicatorState, boundaries: Tensor) -> DiscreteRi
 
     Parameters
     ----------
-    state
+    state : RiskIndicatorState
         Must contain ``event_time`` [N, T, K] and ``indicator`` [N, T, K].
-    boundaries
+    boundaries : Tensor
         Monotonic bin edges [J+1]; produces J intervals.
 
     Returns
@@ -413,14 +428,16 @@ def discretize_risk(state: RiskIndicatorState, boundaries: Tensor) -> DiscreteRi
     >>> result["discrete_event_time"].shape
     torch.Size([2, 3, 3, 5])
     """
-    et = state["event_time"]  # [N, T, K]
+    event_time = state["event_time"]  # [N, T, K]
     indicator = state["indicator"]  # [N, T, K]
-    interval_start = boundaries[:-1].view(*([1] * et.dim()), -1)  # [1, 1, 1, J]
-    interval_end = boundaries[1:].view(*([1] * et.dim()), -1)
+    interval_start = boundaries[:-1].view(*([1] * event_time.dim()), -1)  # [1,..,1, J]
+    interval_end = boundaries[1:].view(*([1] * event_time.dim()), -1)
     interval_width = interval_end - interval_start
-    et_expanded = et.unsqueeze(-1)  # [N, T, K, 1]
-    exposure = ((et_expanded - interval_start) / interval_width).clamp(0, 1)
-    in_interval = (et_expanded > interval_start) & (et_expanded <= interval_end)
+    event_time_expanded = event_time.unsqueeze(-1)  # [N, T, K, 1]
+    exposure = ((event_time_expanded - interval_start) / interval_width).clamp(0, 1)
+    in_interval = (event_time_expanded > interval_start) & (
+        event_time_expanded <= interval_end
+    )
     ind = indicator.unsqueeze(-1).to(exposure.dtype)  # [N, T, K, 1]
     event_duration = ind * (exposure * in_interval)
     censored_duration = (1.0 - ind) * exposure
