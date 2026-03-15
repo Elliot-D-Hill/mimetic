@@ -1,5 +1,9 @@
 """Synthetic longitudinal data generation for supervised and time-to-event modeling."""
 
+from beartype.claw import beartype_this_package
+
+beartype_this_package()
+
 from .covariance import (
     AR1Covariance,
     IsotropicCovariance,

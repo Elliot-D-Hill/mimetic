@@ -7,7 +7,6 @@ from dataclasses import dataclass
 
 import torch
 import torch.distributions as dist
-from beartype import beartype
 from torch import Tensor
 
 from .types import Correlation, PositiveFloat
@@ -94,7 +93,6 @@ def isotropic_covariance(num_timepoints: int) -> Tensor:
     return torch.eye(num_timepoints)  # [T, T]
 
 
-@beartype
 def ar1_covariance(correlation: Correlation, num_timepoints: int) -> Tensor:
     """
     Build AR(1) residual covariance Sigma[j,k] = rho^|j-k|.
@@ -137,7 +135,6 @@ def ar1_covariance(correlation: Correlation, num_timepoints: int) -> Tensor:
     return correlation**diff  # [T, T]
 
 
-@beartype
 def lkj_covariance(concentration: PositiveFloat, num_timepoints: int) -> Tensor:
     """
     Sample an unstructured correlation matrix from the LKJ distribution.
@@ -170,7 +167,6 @@ def lkj_covariance(concentration: PositiveFloat, num_timepoints: int) -> Tensor:
     return L @ L.T  # [T, T]
 
 
-@beartype
 def random_effects_covariance(
     std: Sequence[PositiveFloat] | Tensor | PositiveFloat,
     correlation: Tensor | Correlation = 0.0,

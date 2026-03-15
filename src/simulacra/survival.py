@@ -3,7 +3,6 @@
 import torch
 import torch.distributions as dist
 import torch.nn.functional as F
-from beartype import beartype
 from torch import Tensor
 
 from .states import (
@@ -193,7 +192,6 @@ def survival_indicators(state: CensoredState) -> SurvivalState:
 # ---------------------------------------------------------------------------
 
 
-@beartype
 def independent_events(
     state: PredictorState, prevalence: UnitInterval = 0.1
 ) -> EventProcessState:
@@ -245,7 +243,6 @@ def independent_events(
 # ---------------------------------------------------------------------------
 
 
-@beartype
 def competing_risks(
     state: PredictorState, shape: PositiveFloat | Tensor = 1.0
 ) -> CompetingRisksState:

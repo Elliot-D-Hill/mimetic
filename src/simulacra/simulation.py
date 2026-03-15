@@ -12,7 +12,6 @@ from dataclasses import dataclass
 from typing import Any
 
 import torch.nn.functional as F
-from beartype import beartype
 from tensordict import TensorDict
 from torch import Tensor
 
@@ -138,7 +137,6 @@ class Simulation(_Step[PredictorState]):
     torch.Size([10, 5, 1])
     """
 
-    @beartype
     def __init__(
         self,
         num_samples: PositiveInt,
@@ -190,7 +188,6 @@ class Simulation(_Step[PredictorState]):
         sim.state = state
         return sim
 
-    @beartype
     def random_effects(
         self,
         std: Sequence[PositiveFloat] | Tensor | PositiveFloat,
@@ -325,7 +322,6 @@ class Simulation(_Step[PredictorState]):
 
     # --- Event processes (branch from PredictorState) ---
 
-    @beartype
     def competing_risks(
         self, shape: PositiveFloat | Tensor = 1.0
     ) -> CompetingRisksStep:
@@ -349,7 +345,6 @@ class Simulation(_Step[PredictorState]):
         """
         return CompetingRisksStep(competing_risks(self.state, shape))
 
-    @beartype
     def independent_events(
         self, prevalence: UnitInterval = 0.1
     ) -> IndependentEventsStep:
@@ -374,7 +369,6 @@ class Simulation(_Step[PredictorState]):
 
     # --- Response distributions (choose one) ---
 
-    @beartype
     def gaussian(
         self, std: PositiveFloat, *, covariance: ObservationCovariance | None = None
     ) -> ResponseStep:
@@ -421,7 +415,6 @@ class Simulation(_Step[PredictorState]):
         """
         return ResponseStep(poisson(self.state))
 
-    @beartype
     def bernoulli(self, prevalence: UnitInterval = 0.5) -> DiscreteResponseStep:
         """
         Sample Bernoulli response (logit link).
@@ -457,7 +450,6 @@ class Simulation(_Step[PredictorState]):
         """
         return DiscreteResponseStep(categorical(self.state))
 
-    @beartype
     def ordinal(self, num_classes: PositiveInt) -> DiscreteResponseStep:
         """
         Sample ordinal response (cumulative logit).
@@ -478,7 +470,6 @@ class Simulation(_Step[PredictorState]):
         """
         return DiscreteResponseStep(ordinal(self.state, num_classes))
 
-    @beartype
     def binomial(
         self, num_trials: PositiveInt, prevalence: UnitInterval = 0.5
     ) -> ResponseStep:
@@ -503,7 +494,6 @@ class Simulation(_Step[PredictorState]):
         """
         return ResponseStep(binomial(self.state, num_trials, prevalence))
 
-    @beartype
     def multinomial(self, num_trials: PositiveInt) -> ResponseStep:
         """
         Sample multinomial response (softmax link).
@@ -524,7 +514,6 @@ class Simulation(_Step[PredictorState]):
         """
         return ResponseStep(multinomial(self.state, num_trials))
 
-    @beartype
     def negative_binomial(self, concentration: PositiveFloat) -> ResponseStep:
         """
         Sample negative binomial response (log link).
@@ -545,7 +534,6 @@ class Simulation(_Step[PredictorState]):
         """
         return ResponseStep(negative_binomial(self.state, concentration))
 
-    @beartype
     def zero_inflated_poisson(self, inflation: UnitInterval) -> ResponseStep:
         """
         Sample zero-inflated Poisson response (log link).
@@ -566,7 +554,6 @@ class Simulation(_Step[PredictorState]):
         """
         return ResponseStep(zero_inflated_poisson(self.state, inflation))
 
-    @beartype
     def zero_inflated_negative_binomial(
         self, inflation: UnitInterval, concentration: PositiveFloat
     ) -> ResponseStep:
@@ -593,7 +580,6 @@ class Simulation(_Step[PredictorState]):
             zero_inflated_negative_binomial(self.state, inflation, concentration)
         )
 
-    @beartype
     def gamma(self, concentration: PositiveFloat) -> ResponseStep:
         """
         Sample Gamma response (log link).
@@ -614,7 +600,6 @@ class Simulation(_Step[PredictorState]):
         """
         return ResponseStep(gamma_response(self.state, concentration))
 
-    @beartype
     def beta(self, precision: PositiveFloat) -> ResponseStep:
         """
         Sample Beta response (logit link).
@@ -635,7 +620,6 @@ class Simulation(_Step[PredictorState]):
         """
         return ResponseStep(beta_response(self.state, precision))
 
-    @beartype
     def log_normal(self, std: PositiveFloat) -> ResponseStep:
         """
         Sample log-normal response (log link).

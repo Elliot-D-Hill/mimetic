@@ -7,7 +7,6 @@ from collections.abc import Callable, Sequence
 import torch
 import torch.distributions as dist
 import torch.nn.functional as F
-from beartype import beartype
 from torch import Tensor, arange, randn
 
 from .covariance import random_effects_covariance
@@ -15,7 +14,6 @@ from .states import ObservedState, PredictorState, TokenizedState, has_random_ef
 from .types import Correlation, PositiveFloat, PositiveInt, UnitInterval
 
 
-@beartype
 def linear_predictor(
     num_samples: PositiveInt,
     num_timepoints: PositiveInt,
@@ -87,7 +85,6 @@ def linear_predictor(
 # ---------------------------------------------------------------------------
 
 
-@beartype
 def gaussian(
     state: PredictorState, std: PositiveFloat, covariance: Tensor
 ) -> ObservedState:
@@ -176,7 +173,6 @@ def poisson(state: PredictorState) -> ObservedState:
     return ObservedState(**state, y=y, mu=mu)
 
 
-@beartype
 def bernoulli(state: PredictorState, prevalence: UnitInterval = 0.5) -> ObservedState:
     """
     Sample Bernoulli response from linear predictor (logit link).
@@ -255,7 +251,6 @@ def categorical(state: PredictorState) -> ObservedState:
     return ObservedState(**state, y=y, mu=mu)
 
 
-@beartype
 def ordinal(
     state: PredictorState,
     num_classes: PositiveInt,
@@ -311,7 +306,6 @@ def ordinal(
     return ObservedState(**state, y=y, mu=mu)
 
 
-@beartype
 def binomial(
     state: PredictorState, num_trials: PositiveInt, prevalence: UnitInterval = 0.5
 ) -> ObservedState:
@@ -356,7 +350,6 @@ def binomial(
     return ObservedState(**state, y=y, mu=mu)
 
 
-@beartype
 def multinomial(state: PredictorState, num_trials: PositiveInt) -> ObservedState:
     """
     Sample multinomial response from linear predictor (softmax link).
@@ -396,7 +389,6 @@ def multinomial(state: PredictorState, num_trials: PositiveInt) -> ObservedState
     return ObservedState(**state, y=y, mu=mu)
 
 
-@beartype
 def zero_inflated_poisson(
     state: PredictorState, inflation: UnitInterval
 ) -> ObservedState:
@@ -441,7 +433,6 @@ def zero_inflated_poisson(
     return ObservedState(**state, y=y, mu=mu)
 
 
-@beartype
 def negative_binomial(
     state: PredictorState, concentration: PositiveFloat
 ) -> ObservedState:
@@ -484,7 +475,6 @@ def negative_binomial(
     return ObservedState(**state, y=y, mu=mu)
 
 
-@beartype
 def zero_inflated_negative_binomial(
     state: PredictorState, inflation: UnitInterval, concentration: PositiveFloat
 ) -> ObservedState:
@@ -535,7 +525,6 @@ def zero_inflated_negative_binomial(
     return ObservedState(**state, y=y, mu=mu)
 
 
-@beartype
 def gamma_response(
     state: PredictorState, concentration: PositiveFloat
 ) -> ObservedState:
@@ -582,7 +571,6 @@ def gamma_response(
     return ObservedState(**state, y=y, mu=mu)
 
 
-@beartype
 def beta_response(state: PredictorState, precision: PositiveFloat) -> ObservedState:
     """
     Sample Beta response from linear predictor (logit link).
@@ -629,7 +617,6 @@ def beta_response(state: PredictorState, precision: PositiveFloat) -> ObservedSt
     return ObservedState(**state, y=y, mu=mu)
 
 
-@beartype
 def log_normal(state: PredictorState, std: PositiveFloat) -> ObservedState:
     """
     Sample log-normal response from linear predictor (log link).
@@ -675,7 +662,6 @@ def log_normal(state: PredictorState, std: PositiveFloat) -> ObservedState:
 # ---------------------------------------------------------------------------
 
 
-@beartype
 def random_effects(
     state: PredictorState,
     std: Sequence[PositiveFloat] | Tensor | PositiveFloat,
@@ -938,7 +924,6 @@ def mlp[T: PredictorState](
 # ---------------------------------------------------------------------------
 
 
-@beartype
 def tokens(
     state: ObservedState, vocab_size: PositiveInt, concentration: PositiveFloat = 1.0
 ) -> TokenizedState:
@@ -984,7 +969,6 @@ def tokens(
     return TokenizedState(**state, tokens=token_ids)
 
 
-@beartype
 def observation_time[T: PredictorState](
     state: T, shape: PositiveFloat, rate: PositiveFloat
 ) -> T:

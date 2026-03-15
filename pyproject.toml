@@ -40,6 +40,9 @@ exclude = ["notebooks", "**/node_modules", "**/__pycache__", "**/.*", ".venv"]
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "RUF"]
 
+[tool.ruff.lint.per-file-ignores]
+"src/simulacra/__init__.py" = ["E402"]
+
 [tool.ruff.format]
 skip-magic-trailing-comma = true
 
